@@ -1,0 +1,17 @@
+[project]
+name = "junk"
+version = "0.0.1"
+authors = [
+  { name="Madison Brooks", email="maddie@0xmaddie.page" },
+]
+description = "🗑️"
+readme = "readme.md"
+requires-python = ">=3.7"
+dependencies = [
+  "numpy",
+  "scipy",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
