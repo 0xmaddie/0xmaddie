@@ -15,12 +15,14 @@ def _normalize_filter(filter):
     filter = ' '.join(filter)
   return filter
 
+RandomSeed = Tuple[str, int]
+
 _sdm_prompt_context = None
 
 class SdmPromptContext:
   filters: List[str]
   size: Tuple[int, int] = (512, 512)
-  random_seed: Tuple[str, int] = ('pin', 0)
+  random_seed: RandomSeed = ('pin', 0)
   guidance_scale: int = 13.0
   num_inference_steps: int = 50
   initial_image: Optional[str] = None
@@ -60,21 +62,36 @@ def push(filter):
   assert _sdm_prompt_context is not None
   return _sdm_prompt_context.push(filter)
 
-def has(self, filter):
+def has(filter):
   global _sdm_prompt_context
   assert _sdm_prompt_context is not None
   return _sdm_prompt_context.has(filter)
 
-def set_random_seed(self, value):
+def set_random_seed(value: RandomSeed):
   global _sdm_prompt_context
   assert _sdm_prompt_context is not None
-  _sdm_prompt_context.random_seed = Value
+  _sdm_prompt_context.random_seed = value
 
-def set_num_inference_steps(self, value):
+def set_num_inference_steps(value: int):
   global _sdm_prompt_context
   assert _sdm_prompt_context is not None
-  _sdm_prompt_context.num_interfence_steps = Value
+  _sdm_prompt_context.num_interfence_steps = value
 
+def set_guidance_scale(value: int):
+  global _sdm_prompt_context
+  assert _sdm_prompt_context is not None
+  _sdm_prompt_context.guidance_scale = value
+
+def set_image_denoise_strength(value: float):
+  global _sdm_prompt_context
+  assert _sdm_prompt_context is not None
+  _sdm_prompt_context.image_denoise_strength = value
+
+def set_initial_image(value: str):
+  global _sdm_prompt_context
+  assert _sdm_prompt_context is not None
+  _sdm_prompt_context.initial_image = value
+  
 @dataclass(frozen=True)
 class SdmPromptResult:
   images: List[Any]
