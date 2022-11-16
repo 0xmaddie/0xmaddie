@@ -1,5 +1,5 @@
 [project]
-name = "gen_image"
+name = "image"
 version = "0.0.1"
 authors = [
   { name="Madison Brooks", email="maddie@0xmaddie.page" },
