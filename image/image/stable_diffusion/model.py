@@ -131,7 +131,7 @@ class SdmModelContext:
             generator           = self.torch_rng,
           ).images
         result = SdmPromptResult(
-          created_time           = rt,
+          created_time           = int(time.time()),
           images                 = images,
           prompt                 = prompt,
           num_inference_steps    = num_inference_steps,
