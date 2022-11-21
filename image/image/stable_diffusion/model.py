@@ -1,5 +1,4 @@
 from .prompt import SdmPromptContext
-from .prompt import SdmPromptResult
 
 import sys
 import time
@@ -8,6 +7,28 @@ import PIL
 import diffusers as ds
 from loguru import logger as log
 from torch import autocast
+
+from dataclasses import dataclass
+
+from typing import Tuple
+# from typing import Union
+from typing import Optional
+from typing import List
+# from typing import Sequence
+# from typing import Callable
+from typing import Any
+
+@dataclass(frozen=True)
+class SdmPromptResult:
+  images: List[Any]
+  prompt: str = ''
+  random_seed: Tuple[str, int] = ('pin', 0)
+  guidance_scale: float = 13.0
+  num_inference_steps: int = 50
+  session_id: int = 0
+  batch_id: int = 0
+  initial_image: Optional[str] = None
+  image_denoise_strength: float = 0.7
 
 class SdmModelContext:
   text_to_image_pipeline: ds.DiffusionPipeline
@@ -56,10 +77,10 @@ class SdmModelContext:
     log.success('connected')
 
   def generate(self, prompt_fn, batch_size, iterations):
-    gt = int(time.time())
-    log.info(f'generate_{gt}()')
-    log.info(f'generate_{gt}.batch_size = {batch_size}')
-    log.info(f'generate_{gt}.iterations = {iterations}')
+    session_id = int(time.time())
+    log.info(f'session_{session_id}()')
+    log.info(f'session_{session_id}.batch_size = {batch_size}')
+    log.info(f'session_{session_id}.iterations = {iterations}')
 
     image_cache = {}
     def get_image(path):
@@ -69,13 +90,13 @@ class SdmModelContext:
 
     pinned_seed_value = None
 
-    for i in range(iterations):
+    for batch_id in range(iterations):
       with SdmPromptContext() as prompt_context:
         prompt_fn()
 
         seed_type, seed_value = prompt_context.random_seed
         if seed_type == 'pin':
-          if i == 0:
+          if batch_id == 0:
             pinned_seed_value = seed_value
             self.torch_rng.manual_seed(seed_value)
           else:
@@ -93,23 +114,23 @@ class SdmModelContext:
         initial_image          = prompt_context.initial_image
         image_denoise_strength = prompt_context.image_denoise_strength
 
-      log.info(f'generate_{gt}_{i}()')
-      log.info(f'generate_{gt}_{i}.prompt                 = {prompt}')
-      log.info(f'generate_{gt}_{i}.prompt.len             = {len(prompt)}')
-      log.info(f'generate_{gt}_{i}.prompt.hash            = {hash(prompt)}')
-      log.info(f'generate_{gt}_{i}.size                   = {size}')
-      log.info(f'generate_{gt}_{i}.random_seed            = {random_seed}')
-      log.info(f'generate_{gt}_{i}.guidance_scale         = {guidance_scale}')
-      log.info(f'generate_{gt}_{i}.num_inference_steps    = {num_inference_steps}')
+      log.info(f'session_{session_id}_{batch_id}()')
+      log.info(f'session_{session_id}_{batch_id}.prompt                 = {prompt}')
+      log.info(f'session_{session_id}_{batch_id}.prompt.len             = {len(prompt)}')
+      log.info(f'session_{session_id}_{batch_id}.prompt.hash            = {hash(prompt)}')
+      log.info(f'session_{session_id}_{batch_id}.size                   = {size}')
+      log.info(f'session_{session_id}_{batch_id}.random_seed            = {random_seed}')
+      log.info(f'session_{session_id}_{batch_id}.guidance_scale         = {guidance_scale}')
+      log.info(f'session_{session_id}_{batch_id}.num_inference_steps    = {num_inference_steps}')
 
       if initial_image is not None:
-        log.info(f'generate_{gt}_{i}.initial_image          = {initial_image}')
-        log.info(f'generate_{gt}_{i}.image_denoise_strength = {image_denoise_strength}')
+        log.info(f'session_{session_id}_{batch_id}.initial_image          = {initial_image}')
+        log.info(f'session_{session_id}_{batch_id}.image_denoise_strength = {image_denoise_strength}')
         print('initial_image =')
         display(get_image(initial_image))
 
       # print(f'image #{i*batch_size}-{i*batch_size+batch_size-1}')
-      print(f'iteration {i}')
+      print(f'iteration {batch_id}')
 
       with autocast('cuda'):
         if initial_image is None:
@@ -131,7 +152,8 @@ class SdmModelContext:
             generator           = self.torch_rng,
           ).images
         result = SdmPromptResult(
-          created_time           = int(time.time()),
+          session_id             = session_id,
+          batch_id               = batch_id,
           images                 = images,
           prompt                 = prompt,
           num_inference_steps    = num_inference_steps,

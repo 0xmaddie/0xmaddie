@@ -6,8 +6,6 @@ from typing import List
 # from typing import Callable
 from typing import Any
 
-from dataclasses import dataclass
-
 def _normalize_filter(filter):
   # if isinstance(filter, list):
   if not isinstance(filter, str):
@@ -91,14 +89,4 @@ def set_initial_image(value: str):
   global _sdm_prompt_context
   assert _sdm_prompt_context is not None
   _sdm_prompt_context.initial_image = value
-  
-@dataclass(frozen=True)
-class SdmPromptResult:
-  images: List[Any]
-  prompt: str = ''
-  random_seed: Tuple[str, int] = ('pin', 0)
-  guidance_scale: float = 13.0
-  num_inference_steps: int = 50
-  created_time: int = 0
-  initial_image: Optional[str] = None
-  image_denoise_strength: float = 0.7
+
