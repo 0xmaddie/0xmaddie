@@ -4,9 +4,9 @@ programming languages • machine learning • generative media
 
 ---
 
-stuff i wanna write:
+wip:
 
-- Can programming be liberated from the functional style? A generative style and its geometry of programs.
-- irc command-and-control for generative models.
-- toy neural nets in jax, maybe w/ clifford algebra.
+- can programming be liberated from the functional style? a generative style and its geometry of programs.
+- actors are callbacks; a better idea is lexical scope over the
+network. this one is from [unison](https://www.unison-lang.org/learn/the-big-idea/).
 - [vau calculus lisp](https://web.cs.wpi.edu/~jshutt/kernel.html). i wrote one in [javascript](https://github.com/0xmaddie/lisp) a while ago, i wanna do it again in python and use it with generative stuff.
