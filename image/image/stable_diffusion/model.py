@@ -70,46 +70,41 @@ class SdmModelContext:
     pinned_seed_value = None
 
     for i in range(iterations):
-      prompt_context = SdmPromptContext()
-      prompt_context.bind()
-      prompt_fn()
+      with SdmPromptContext() as prompt_context:
+        prompt_fn()
 
-      seed_type, seed_value = prompt_context.random_seed
-      if seed_type == 'pin':
-        if i == 0:
-          pinned_seed_value = seed_value
-          self.torch_rng.manual_seed(seed_value)
+        seed_type, seed_value = prompt_context.random_seed
+        if seed_type == 'pin':
+          if i == 0:
+            pinned_seed_value = seed_value
+            self.torch_rng.manual_seed(seed_value)
+          else:
+            assert pinned_seed_value == seed_value
         else:
-          assert pinned_seed_value == seed_value
-      else:
-        assert seed_type == 'set'
-        assert pinned_seed_value == None
-        self.torch_rng.manual_seed(seed_value)
+          assert seed_type == 'set'
+          assert pinned_seed_value == None
+          self.torch_rng.manual_seed(seed_value)
 
-      prompt                 = prompt_context.prompt
-      size                   = prompt_context.size
-      random_seed            = prompt_context.random_seed
-      guidance_scale         = prompt_context.guidance_scale
-      num_inference_steps    = prompt_context.num_inference_steps
-      initial_image          = prompt_context.initial_image
-      image_denoise_strength = prompt_context.image_denoise_strength
+        prompt                 = prompt_context.prompt
+        size                   = prompt_context.size
+        random_seed            = prompt_context.random_seed
+        guidance_scale         = prompt_context.guidance_scale
+        num_inference_steps    = prompt_context.num_inference_steps
+        initial_image          = prompt_context.initial_image
+        image_denoise_strength = prompt_context.image_denoise_strength
 
-      prompt_context.unbind()
-
-      rt = int(time.time())
-      log.info(f'row_{rt}()')
-      log.info(f'row_{rt}.context                = generate_{gt}')
-      log.info(f'row_{rt}.prompt                 = {prompt}')
-      log.info(f'row_{rt}.prompt.len             = {len(prompt)}')
-      log.info(f'row_{rt}.prompt.hash            = {hash(prompt)}')
-      log.info(f'row_{rt}.size                   = {size}')
-      log.info(f'row_{rt}.random_seed            = {random_seed}')
-      log.info(f'row_{rt}.guidance_scale         = {guidance_scale}')
-      log.info(f'row_{rt}.num_inference_steps    = {num_inference_steps}')
+      log.info(f'generate_{gt}_{i}()')
+      log.info(f'generate_{gt}_{i}.prompt                 = {prompt}')
+      log.info(f'generate_{gt}_{i}.prompt.len             = {len(prompt)}')
+      log.info(f'generate_{gt}_{i}.prompt.hash            = {hash(prompt)}')
+      log.info(f'generate_{gt}_{i}.size                   = {size}')
+      log.info(f'generate_{gt}_{i}.random_seed            = {random_seed}')
+      log.info(f'generate_{gt}_{i}.guidance_scale         = {guidance_scale}')
+      log.info(f'generate_{gt}_{i}.num_inference_steps    = {num_inference_steps}')
 
       if initial_image is not None:
-        log.info(f'row_{rt}.initial_image          = {initial_image}')
-        log.info(f'row_{rt}.image_denoise_strength = {image_denoise_strength}')
+        log.info(f'generate_{gt}_{i}.initial_image          = {initial_image}')
+        log.info(f'generate_{gt}_{i}.image_denoise_strength = {image_denoise_strength}')
         print('initial_image =')
         display(get_image(initial_image))
 

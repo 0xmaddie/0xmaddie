@@ -36,18 +36,18 @@ class SdmPromptContext:
     # return ','.join(self.filters)
     return ', '.join(self.filters)
 
-  def bind(self):
+  def __enter__(self):
     global _sdm_prompt_context
     assert _sdm_prompt_context is None
     _sdm_prompt_context = self
     return self
 
-  def unbind(self):
+  def __exit__(self, kind, err, traceback):
     global _sdm_prompt_context
     assert _sdm_prompt_context is self
     _sdm_prompt_context = None
-    return self
-  
+    return False
+
   def push(self, filter):
     filter = _normalize_filter(filter)
     if len(filter) > 0:
