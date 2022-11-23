@@ -11,3 +11,4 @@ __pycache__
 .env
 .venv
 *.egg-info*
+.ipynb_checkpoints

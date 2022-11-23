@@ -4,7 +4,8 @@ import torch
 import PIL
 import diffusers as ds
 from loguru import logger as log
-from torch import autocast
+
+import junk
 
 from dataclasses import dataclass
 
@@ -25,13 +26,13 @@ def _normalize_filter(filter):
 
 RandomSeed = Tuple[str, int]
 
-_sdm_prompt_context = None
+_prompt_context = None
 
-class SdmPromptContext:
+class PromptContext:
   filters: List[str]
   size: Tuple[int, int] = (512, 512)
   random_seed: RandomSeed = ('pin', 0)
-  guidance_scale: int = 13.0
+  guidance_scale: float = 13.0
   num_inference_steps: int = 50
   initial_image: Optional[str] = None
   image_denoise_strength: float = 0.7
@@ -45,15 +46,15 @@ class SdmPromptContext:
     return ', '.join(self.filters)
 
   def __enter__(self):
-    global _sdm_prompt_context
-    assert _sdm_prompt_context is None
-    _sdm_prompt_context = self
+    global _prompt_context
+    # assert _prompt_context is None
+    _prompt_context = self
     return self
 
   def __exit__(self, kind, err, traceback):
-    global _sdm_prompt_context
-    assert _sdm_prompt_context is self
-    _sdm_prompt_context = None
+    global _prompt_context
+    assert _prompt_context is self
+    _prompt_context = None
     return False
 
   def push(self, filter):
@@ -66,42 +67,42 @@ class SdmPromptContext:
     return filter in self.filters
   
 def push(filter):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  return _sdm_prompt_context.push(filter)
+  global _prompt_context
+  assert _prompt_context is not None
+  return _prompt_context.push(filter)
 
 def has(filter):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  return _sdm_prompt_context.has(filter)
+  global _prompt_context
+  assert _prompt_context is not None
+  return _prompt_context.has(filter)
 
 def set_random_seed(value: RandomSeed):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  _sdm_prompt_context.random_seed = value
+  global _prompt_context
+  assert _prompt_context is not None
+  _prompt_context.random_seed = value
 
 def set_num_inference_steps(value: int):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  _sdm_prompt_context.num_interfence_steps = value
+  global _prompt_context
+  assert _prompt_context is not None
+  _prompt_context.num_inference_steps = value
 
 def set_guidance_scale(value: int):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  _sdm_prompt_context.guidance_scale = value
+  global _prompt_context
+  assert _prompt_context is not None
+  _prompt_context.guidance_scale = value
 
 def set_image_denoise_strength(value: float):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  _sdm_prompt_context.image_denoise_strength = value
+  global _prompt_context
+  assert _prompt_context is not None
+  _prompt_context.image_denoise_strength = value
 
 def set_initial_image(value: str):
-  global _sdm_prompt_context
-  assert _sdm_prompt_context is not None
-  _sdm_prompt_context.initial_image = value
+  global _prompt_context
+  assert _prompt_context is not None
+  _prompt_context.initial_image = value
 
 @dataclass(frozen=True)
-class SdmPromptResult:
+class PromptResult:
   images: List[Any]
   prompt: str = ''
   random_seed: Tuple[str, int] = ('pin', 0)
@@ -112,7 +113,7 @@ class SdmPromptResult:
   initial_image: Optional[str] = None
   image_denoise_strength: float = 0.7
 
-class SdmModelContext:
+class Model:
   text_to_image_pipeline: ds.DiffusionPipeline
   image_to_image_pipeline: ds.DiffusionPipeline
   finetuned_vae: ds.AutoencoderKL
@@ -173,7 +174,7 @@ class SdmModelContext:
     pinned_seed_value = None
 
     for batch_id in range(iterations):
-      with SdmPromptContext() as prompt_context:
+      with PromptContext() as prompt_context:
         prompt_fn()
 
         seed_type, seed_value = prompt_context.random_seed
@@ -199,7 +200,7 @@ class SdmModelContext:
       log.info(f'session_{session_id}_{batch_id}()')
       log.info(f'session_{session_id}_{batch_id}.prompt                 = {prompt}')
       log.info(f'session_{session_id}_{batch_id}.prompt.len             = {len(prompt)}')
-      log.info(f'session_{session_id}_{batch_id}.prompt.hash            = {hash(prompt)}')
+      log.info(f'session_{session_id}_{batch_id}.prompt.hash            = {junk.hash(prompt)}')
       log.info(f'session_{session_id}_{batch_id}.size                   = {size}')
       log.info(f'session_{session_id}_{batch_id}.random_seed            = {random_seed}')
       log.info(f'session_{session_id}_{batch_id}.guidance_scale         = {guidance_scale}')
@@ -214,7 +215,7 @@ class SdmModelContext:
       # print(f'image #{i*batch_size}-{i*batch_size+batch_size-1}')
       print(f'iteration {batch_id}')
 
-      with autocast('cuda'):
+      with torch.autocast('cuda'):
         if initial_image is None:
           images = self.text_to_image_pipeline(
             prompt              = [prompt]*batch_size,
@@ -233,7 +234,7 @@ class SdmModelContext:
             num_inference_steps = num_inference_steps,
             generator           = self.torch_rng,
           ).images
-        result = SdmPromptResult(
+        result = PromptResult(
           session_id             = session_id,
           batch_id               = batch_id,
           images                 = images,

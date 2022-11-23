@@ -1,8 +1,7 @@
 import os
-import PIL
 import IPython
 
-def ffmpeg_rawvideo_to_gif(
+def rawvideo_to_gif(
   source: str    = 'source.raw',
   target: str    = 'target.gif',
   height: int    = 512,
@@ -23,7 +22,7 @@ def ffmpeg_rawvideo_to_gif(
   image = IPython.display.Image(filename=target)
   return image
 
-def ffmpeg_rawvideo_to_video(
+def rawvideo_to_video(
   source: str    = 'source.raw',
   target: str    = 'target.webm',
   height: int    = 512,
@@ -44,18 +43,3 @@ def ffmpeg_rawvideo_to_video(
   os.system(command)
   video = IPython.display.Video(target, embed=True)
   return video
-
-def catenate_images(images, rows, cols):
-  assert len(images) == rows*cols
-
-  width, height = images[0].size
-  grid = PIL.Image.new(
-    'RGB',
-    size=(cols*width, rows*height),
-  )
-
-  for index, image in enumerate(images):
-    box = (index%cols*width, index//cols*height)
-    grid.paste(image, box=box)
-
-  return grid

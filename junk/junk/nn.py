@@ -3,6 +3,7 @@ import scipy as sp
 import functools
 
 from typing import Callable
+from typing import List
 
 _weight_stack = []
 
@@ -155,10 +156,10 @@ class Mixer:
     return state
 
 class Dictionary:
-  tokens: list[str]
+  tokens: List[str]
   one_hot: np.ndarray
 
-  def __init__(self, tokens: list[str]):
+  def __init__(self, tokens: List[str]):
     self.tokens  = tokens
     self.one_hot = np.eye(len(self.tokens))
 
@@ -173,6 +174,14 @@ class Dictionary:
     tokens = [rng.choice(self.tokens, p=p) for p in src]
     dst    = ' '.join(tokens)
     return dst
+
+class Loss:
+  tokens: Dictionary
+  corpus: List[str]
+  model: Callable[[np.ndarray], np.ndarray]
+
+  def __call__(self, weights: np.ndarray) -> float:
+    return 0.0
 
 if __name__ == '__main__':
   dx = Dictionary('a b c d _'.split(' '))
