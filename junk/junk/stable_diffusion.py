@@ -30,6 +30,7 @@ _prompt_context = None
 
 class PromptContext:
   filters: List[str]
+  cofilters: List[str]
   size: Tuple[int, int] = (512, 512)
   random_seed: RandomSeed = ('pin', 0)
   guidance_scale: float = 13.0
@@ -44,6 +45,10 @@ class PromptContext:
   def prompt(self) -> str:
     # return ','.join(self.filters)
     return ', '.join(self.filters)
+
+  @property
+  def coprompt(self) -> str:
+    return ', '.join(self.cofilters)
 
   def __enter__(self):
     global _prompt_context
@@ -62,19 +67,38 @@ class PromptContext:
     if len(filter) > 0:
       self.filters.append(filter)
 
+  def copush(self, filter):
+    filter = _normalize_filter(filter)
+    if len(filter) > 0:
+      self.cofilters.append(filter)
+
   def has(self, filter):
     filter = _normalize_filter(filter)
     return filter in self.filters
-  
+
+  def cohas(self, filter):
+    filter = _normalize_filter(filter)
+    return filter in self.cofilters
+
 def push(filter):
   global _prompt_context
   assert _prompt_context is not None
   return _prompt_context.push(filter)
 
+def copush(filter):
+  global _prompt_context
+  assert _prompt_context is not None
+  return _prompt_context.copush(filter)
+
 def has(filter):
   global _prompt_context
   assert _prompt_context is not None
   return _prompt_context.has(filter)
+
+def cohas(filter):
+  global _prompt_context
+  assert _prompt_context is not None
+  return _prompt_context.cohas(filter)
 
 def set_random_seed(value: RandomSeed):
   global _prompt_context
@@ -105,6 +129,7 @@ def set_initial_image(value: str):
 class PromptResult:
   images: List[Any]
   prompt: str = ''
+  coprompt: str = ''
   random_seed: Tuple[str, int] = ('pin', 0)
   guidance_scale: float = 13.0
   num_inference_steps: int = 50
@@ -190,6 +215,7 @@ class Model:
           self.torch_rng.manual_seed(seed_value)
 
         prompt                 = prompt_context.prompt
+        coprompt               = prompt_context.coprompt
         size                   = prompt_context.size
         random_seed            = prompt_context.random_seed
         guidance_scale         = prompt_context.guidance_scale
@@ -199,6 +225,7 @@ class Model:
 
       log.info(f'session_{session_id}_{batch_id}()')
       log.info(f'session_{session_id}_{batch_id}.prompt                 = {prompt}')
+      log.info(f'session_{session_id}_{batch_id}.coprompt               = {coprompt}')
       log.info(f'session_{session_id}_{batch_id}.prompt.len             = {len(prompt)}')
       log.info(f'session_{session_id}_{batch_id}.prompt.hash            = {junk.hash(prompt)}')
       log.info(f'session_{session_id}_{batch_id}.size                   = {size}')
@@ -216,9 +243,12 @@ class Model:
       print(f'iteration {batch_id}')
 
       with torch.autocast('cuda'):
+        # idk if its actually a no-op to have an empty string as a negative
+        # prompt, so i added this conditional
         if initial_image is None:
           images = self.text_to_image_pipeline(
             prompt              = [prompt]*batch_size,
+            negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
             height              = size[0],
             width               = size[1],
             guidance_scale      = guidance_scale,
@@ -230,6 +260,7 @@ class Model:
             init_image          = get_image(initial_image),
             strength            = image_denoise_strength,
             prompt              = [prompt]*batch_size,
+            negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
             guidance_scale      = guidance_scale,
             num_inference_steps = num_inference_steps,
             generator           = self.torch_rng,
@@ -239,6 +270,7 @@ class Model:
           batch_id               = batch_id,
           images                 = images,
           prompt                 = prompt,
+          coprompt               = coprompt,
           num_inference_steps    = num_inference_steps,
           guidance_scale         = guidance_scale,
           random_seed            = random_seed,
