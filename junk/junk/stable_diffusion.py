@@ -2,7 +2,7 @@ import sys
 import time
 import torch
 import PIL
-import diffusers as ds
+import diffusers
 from loguru import logger as log
 
 import junk
@@ -40,6 +40,7 @@ class PromptContext:
 
   def __init__(self):
     self.filters = []
+    self.cofilters = []
 
   @property
   def prompt(self) -> str:
@@ -139,41 +140,54 @@ class PromptResult:
   image_denoise_strength: float = 0.7
 
 class Model:
-  text_to_image_pipeline: ds.DiffusionPipeline
-  image_to_image_pipeline: ds.DiffusionPipeline
-  finetuned_vae: ds.AutoencoderKL
+  text_to_image_pipeline: diffusers.DiffusionPipeline
+  image_to_image_pipeline: diffusers.DiffusionPipeline
   torch_rng: torch.Generator
 
-  def __init__(self, path: str):
+  def __init__(
+    self,
+    workspace_dir: str,
+    use_v2: bool = False,
+  ):
     self.torch_rng = torch.Generator('cuda')
 
-    self.finetuned_vae = ds.models.AutoencoderKL.from_pretrained(
-      'stabilityai/sd-vae-ft-ema',
-      cache_dir = path,
-    )
-
-    self.text_to_image_pipeline = ds.StableDiffusionPipeline.from_pretrained(
-      'runwayml/stable-diffusion-v1-5',
-      revision         = 'fp16',
-      torch_dtype      = torch.float16,
-      # use_auth_token = True,
-      local_files_only = True,
-      cache_dir        = path,
-      vae              = self.finetuned_vae,
-      safety_checker   = None,
-    ).to('cuda')
+    if use_v2:
+      self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
+        'stabilityai/stable-diffusion-2',
+        revision                = 'fp16',
+        torch_dtype             = torch.float16,
+        local_files_only        = True,
+        cache_dir               = workspace_dir,
+        safety_checker          = None,
+        requires_safety_checker = False,
+      ).to('cuda')
+    else:
+      finetuned_vae = diffusers.models.AutoencoderKL.from_pretrained(
+        'stabilityai/sd-vae-ft-ema',
+        cache_dir = workspace_dir,
+      )
+      self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
+        'runwayml/stable-diffusion-v1-5',
+        revision                = 'fp16',
+        torch_dtype             = torch.float16,
+        local_files_only        = True,
+        cache_dir               = workspace_dir,
+        vae                     = finetuned_vae,
+        safety_checker          = None,
+        requires_safety_checker = False,
+      ).to('cuda')
 
     self.text_to_image_pipeline.enable_attention_slicing()
     
-    self.image_to_image_pipeline = ds.StableDiffusionImg2ImgPipeline(
-      vae               = self.text_to_image_pipeline.vae,
-      text_encoder      = self.text_to_image_pipeline.text_encoder,
-      tokenizer         = self.text_to_image_pipeline.tokenizer,
-      unet              = self.text_to_image_pipeline.unet,
-      scheduler         = self.text_to_image_pipeline.scheduler,
-      feature_extractor = self.text_to_image_pipeline.feature_extractor,
-      # safety_checker    = self.text_to_image_pipeline.safety_checker,
-      safety_checker    = None,
+    self.image_to_image_pipeline = diffusers.StableDiffusionImg2ImgPipeline(
+      vae                     = self.text_to_image_pipeline.vae,
+      text_encoder            = self.text_to_image_pipeline.text_encoder,
+      tokenizer               = self.text_to_image_pipeline.tokenizer,
+      unet                    = self.text_to_image_pipeline.unet,
+      scheduler               = self.text_to_image_pipeline.scheduler,
+      feature_extractor       = self.text_to_image_pipeline.feature_extractor,
+      safety_checker          = None,
+      requires_safety_checker = False,
     )
 
     self.image_to_image_pipeline.enable_attention_slicing()
@@ -181,8 +195,8 @@ class Model:
     log_format = "<green>{time:YYYY-MM-DD HH:mm:ss zz}</green> · <level>{message}</level>"
     log.remove()
     log.add(sys.stderr, level='TRACE', format=log_format)
-    log.add(f'{path}/log', level='INFO', format=log_format)
-    log.success('connected')
+    log.add(f'{workspace_dir}/log', level='INFO', format=log_format)
+    log.success(f'loaded model: {"v2" if use_v2 else "v1.5"}')
 
   def generate(self, prompt_fn, batch_size, iterations):
     session_id = int(time.time())
