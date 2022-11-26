@@ -102,9 +102,11 @@ class Mhsa:
     key   = src@K # [batch, heads, seq, dhidden]
     value = src@V # [batch, heads, seq, dhidden]
 
-    energy = query@key.transpose(0, 1, 3, 2)
+    key = key.transpose(0, 1, 3, 2) # [batch, heads, dhidden, seq]
+
+    energy = query@key # [batch, heads, seq, seq]
     energy = energy/np.sqrt(dhidden)
-    energy = sp.special.softmax(energy) # [batch, heads, seq, seq]
+    energy = sp.special.softmax(energy)
 
     target = energy@value                      # [batch, heads, seq, dhidden]
     target = target.transpose(0, 2, 1, 3)      # [batch, seq, heads, dhidden]

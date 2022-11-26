@@ -1,12 +1,18 @@
-import numpy
+import numpy as np
 import opensimplex
 
-def rand():
-  rng = numpy.random.default_rng()
+# todo: this is not as general as it could be, since i'm not using ndarrays
+
+def random() -> float:
+  rng = np.random.default_rng()
   return rng.random()
 
-def coin(odds):
-  rng = numpy.random.default_rng()
+def normal(mean: float = 0, stddev: float = 1) -> float:
+  rng = np.random.default_rng()
+  return rng.normal(loc=mean, scale=stddev)
+
+def coin(odds: float) -> float:
+  rng = np.random.default_rng()
   return rng.random() < odds
 
 def noise(x, y, z=None, w=None):
@@ -18,9 +24,19 @@ def noise(x, y, z=None, w=None):
   return opensimplex.noise4(x, y, z, w)
 
 def choice(xs, p=None):
-  rng = numpy.random.default_rng()
+  rng = np.random.default_rng()
   return rng.choice(xs, p=p)
 
-def shuffle(xs):
-  rng = numpy.random.default_rng()
+def permute(xs):
+  rng = np.random.default_rng()
   return rng.permutation(xs)
+
+def pick(xs, p):
+  rng = np.random.default_rng()
+  n = rng.choice(range(1, len(p)+1), p=p)
+  return permute(xs)[:n]
+
+def maybe(fx, p):
+  if coin(p):
+    return fx
+  return ''
