@@ -271,7 +271,7 @@ class Model:
           ).images
         else:
           images = self.image_to_image_pipeline(
-            init_image          = get_image(initial_image),
+            image               = get_image(initial_image),
             strength            = image_denoise_strength,
             prompt              = [prompt]*batch_size,
             negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
