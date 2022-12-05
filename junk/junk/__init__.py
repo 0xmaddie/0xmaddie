@@ -6,7 +6,7 @@ import junk.pil
 import junk.ffmpeg
 import junk.random
 import junk.turtle_graphics
-import junk.stable_diffusion
+import junk.sdm_2022_11
 
 def hash(value: str) -> str:
   return hashlib.sha256(value.encode()).hexdigest()
