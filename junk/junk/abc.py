@@ -1,6 +1,34 @@
 import re
 import dataclasses
 
+from typing import Dict
+from typing import Optional
+
+def is_valid_constant(token: str) -> bool:
+  return re.match('^(a|b|c|d|e|f|r|s)$', token)
+
+def is_valid_variable(token: str) -> bool:
+  return re.match('^[a-z][a-z0-9-]+$', token)
+
+class Error(Exception):
+  pass
+
+@dataclasses.dataclass(frozen=True)
+class ReadError(Error):
+  code: str
+  message: str
+
+  def __str__(self) -> str:
+    return f'error reading `{self.code}`:\n{self.message}'
+
+@dataclasses.dataclass(frozen=True)
+class EvaluateError(Error):
+  code: 'Code'
+  message: str
+
+  def __str__(self) -> str:
+    return f'error evaluating `{self.code}`:\n{self.message}'
+
 class Code:
   @staticmethod
   def from_string(source: str) -> 'Code':
@@ -14,7 +42,7 @@ class Code:
         index += 1
       elif source[index] == ']':
         if len(stack) == 0:
-          raise ValueError(f'unbalanced brackets')
+          raise ReadError(source, f'unbalanced brackets')
         code = DenseSequence(build)
         code = Quote(code)
         build = stack.pop()
@@ -28,25 +56,25 @@ class Code:
             break
           index += 1
         if index >= len(source):
-          raise ValueError(f'unbalanced quotes')
+          raise ReadError(source, f'unbalanced quotes')
         body = source[start:index]
         code = String(body)
         build.append(code)
         index += 1
-      elif source[index] == '@':
-        start = index
+      elif source[index].startswith('@'):
         index += 1
+        start = index
         while index < len(source):
           if source[index] in '[]" ':
             break
           index += 1
         body = source[start:index]
-        if re.match('^@[a-z][a-z0-9-]+$', body):
+        if is_valid_variable(body):
           code = Annotation(body)
           build.append(code)
         else:
-          raise ValueError(f'unknown symbol: {body}')
-      elif re.match('[a-z]', source[index]):
+          raise ReadError(source, f'unknown symbol: {body}')
+      elif source[index].isalpha() and source[index].islower():
         start = index
         index += 1
         while index < len(source):
@@ -54,15 +82,15 @@ class Code:
             break
           index += 1
         body = source[start:index]
-        if re.match('^(a|b|c|d|e|f|r|s)$', body):
+        if is_valid_constant(body):
           code = Constant(body)
           build.append(code)
-        elif re.match('^[a-z][a-z0-9-]+$', body):
+        elif is_valid_variable(body):
           code = Variable(body)
           build.append(code)
         else:
-          raise ValueError(f'unknown symbol: {body}')
-      elif re.match(r'\d', source[index]):
+          raise ReadError(source, f'unknown symbol: {body}')
+      elif source[index].isdigit():
         start = index
         index += 1
         while index < len(source):
@@ -70,18 +98,20 @@ class Code:
             break
           index += 1
         body = source[start:index]
-        if re.match(r'^(\d)+$', body):
+        if body.isdigit():
           code = Natural(int(body))
           build.append(code)
         else:
-          raise ValueError(f'unknown symbol: {body}')
+          raise ReadError(source, f'unknown symbol: {body}')
       elif source[index] in ' \t\r\n':
         while index < len(source):
           if source[index] not in ' \t\r\n':
             break
           index += 1
+      else:
+        raise ReadError(source, f'unknown token: {source[index]}')
     if len(stack) > 0:
-      raise ValueError(f'unbalanced brackets')
+      raise ReadError(f'unbalanced brackets')
     return DenseSequence(build)
 
 @dataclasses.dataclass(frozen=True)
@@ -281,6 +311,63 @@ class Evaluate:
 
     return DenseSequence(kill+data)
 
+class Database:
+  value: Dict[str, Code]
+
+  def __init__(self):
+    self.value = {}
+
+  def __contains__(self, key: str) -> bool:
+    return key in self.value
+
+  def __getitem__(self, key: str) -> Code:
+    return self.value[key]
+
+  def __setitem__(self, key: str, value: Code):
+    self.value[key] = value
+
+  def __delitem__(self, key: str):
+    if key in self.value:
+      del self.value[key]
+
+def repl():
+  db = Database()
+  eval = Evaluate()
+  while True:
+    line = input('abc> ')
+    if line == '__quit__':
+      break
+    try:
+      if line.startswith('+'):
+        chunks = line[1:].split(' ', maxsplit=1)
+        if len(chunks) == 2:
+          name, body = chunks
+          if not is_valid_variable(name):
+            print(f'invalid word: {name}')
+          else:
+            code = Code.from_string(body)
+            db[name] = code
+            print(f'{name} = {code}')
+        else:
+          name = chunks[0]
+          if not is_valid_variable(name):
+            print(f'invalid word: {name}')
+          else:
+            print(f'{name} = {name}')
+      elif line.startswith('-'):
+        name = line[1:].strip()
+        if not is_valid_variable(name):
+          print(f'invalid word: {name}')
+        if name in db:
+          del db[name]
+        print(f'{name} = {name}')
+      else:
+        code = Code.from_string(line)
+        code = eval(code)
+        print(code)
+    except Error as err:
+      print(err)
+
 if __name__ == '__main__':
   examples = [
     ['[foo] a', 'foo'],
@@ -311,3 +398,5 @@ if __name__ == '__main__':
     # print(f'{source} ?-> {actual} (expected {expected})')
     assert actual == expected
     print(f'{source} -> {actual}')
+
+  repl()
