@@ -1,14 +1,25 @@
 import re
 import dataclasses
 
-from typing import Dict
 from typing import Optional
+from typing import List
+from typing import Dict
+from typing import Generator
 
 def is_valid_constant(token: str) -> bool:
-  return re.match('^(a|b|c|d|e|f|r|s)$', token)
+  return re.match(r'^(a|b|c|d|e|f|r|s)$', token) is not None
 
 def is_valid_variable(token: str) -> bool:
-  return re.match('^[a-z][a-z0-9-]+$', token)
+  return re.match(r'^[a-z][a-z0-9_]+$', token) is not None
+
+def is_valid_command(token: str) -> bool:
+  return re.match(r'^![a-z][a-z0-9_]+$', token) is not None
+
+def is_separator(token: str) -> bool:
+  return token in '[]" \t\r\n'
+
+def is_whitespace(token: str) -> bool:
+  return token in ' \t\r\n'
 
 class Error(Exception):
   pass
@@ -61,16 +72,29 @@ class Code:
         code = String(body)
         build.append(code)
         index += 1
-      elif source[index].startswith('@'):
-        index += 1
+      elif source[index] == '@':
         start = index
+        index += 1
         while index < len(source):
-          if source[index] in '[]" ':
+          if is_separator(source[index]):
             break
           index += 1
         body = source[start:index]
-        if is_valid_variable(body):
+        if is_valid_variable(body[1:]):
           code = Annotation(body)
+          build.append(code)
+        else:
+          raise ReadError(source, f'unknown symbol: {body}')
+      elif source[index] == '!':
+        start = index
+        index += 1
+        while index < len(source):
+          if is_separator(source[index]):
+            break
+          index += 1
+        body = source[start:index]
+        if is_valid_command(body):
+          code = Command(body)
           build.append(code)
         else:
           raise ReadError(source, f'unknown symbol: {body}')
@@ -78,7 +102,7 @@ class Code:
         start = index
         index += 1
         while index < len(source):
-          if source[index] in '[]" ':
+          if is_separator(source[index]):
             break
           index += 1
         body = source[start:index]
@@ -94,7 +118,7 @@ class Code:
         start = index
         index += 1
         while index < len(source):
-          if source[index] in '[]" ':
+          if is_separator(source[index]):
             break
           index += 1
         body = source[start:index]
@@ -103,15 +127,15 @@ class Code:
           build.append(code)
         else:
           raise ReadError(source, f'unknown symbol: {body}')
-      elif source[index] in ' \t\r\n':
+      elif is_whitespace(source[index]):
         while index < len(source):
-          if source[index] not in ' \t\r\n':
+          if not is_whitespace(source[index]):
             break
           index += 1
       else:
         raise ReadError(source, f'unknown token: {source[index]}')
     if len(stack) > 0:
-      raise ReadError(f'unbalanced brackets')
+      raise ReadError(source, f'unbalanced brackets')
     return DenseSequence(build)
 
 @dataclasses.dataclass(frozen=True)
@@ -135,6 +159,13 @@ class Variable(Code):
 
 @dataclasses.dataclass(frozen=True)
 class Annotation(Code):
+  name: str
+
+  def __str__(self):
+    return self.name
+
+@dataclasses.dataclass(frozen=True)
+class Command(Code):
   name: str
 
   def __str__(self):
@@ -177,139 +208,215 @@ class Natural(Code):
   def __str__(self) -> str:
     return f'{self.value}'
 
-class Evaluate:
-  def __call__(self, code: Code) -> Code:
-    todo = [code]
-    data = []
-    kill = []
+class State:
+  todo: List[Code]
+  data: List[Code]
+  kill: List[Code]
+  point: Optional[Code]
 
-    def thunk():
-      nonlocal data
-      kill.extend(data)
-      kill.append(code)
-      data = []
+  def __init__(self, code: Code):
+    self.todo = [code]
+    self.data = []
+    self.kill = []
+    self.point = None
 
-    def bail():
-      nonlocal todo
-      nonlocal data
-      kill.extend(data)
-      kill.append(code)
-      kill.extend(todo)
-      data = []
-      todo = []
+  @property
+  def is_done(self) -> bool:
+    return len(self.todo) == 0
 
-    while len(todo) > 0:
-      code = todo.pop()
-      if isinstance(code, DenseSequence):
-        todo.extend(reversed(code.body))
+  @property
+  def is_empty(self) -> bool:
+    return len(self.data) == 0
+
+  @property
+  def arity(self) -> int:
+    return len(self.data)
+
+  @property
+  def as_code(self) -> Code:
+    buf = self.kill+self.data
+    if self.point is not None:
+      buf.append(self.point)
+    buf.extend(reversed(self.todo))
+    return DenseSequence(buf)
+
+  def next(self) -> Code:
+    self.point = self.todo.pop()
+    return self.point
+
+  def schedule(self, code: Code):
+    if isinstance(code, SparseSequence):
+      self.todo.append(code.snd)
+      self.todo.append(code.fst)
+    elif isinstance(code, DenseSequence):
+      self.todo.extend(reversed(code.body))
+    else:
+      self.todo.append(code)
+
+  def jump(self) -> Optional[Code]:
+    has_reset = False
+    buf = []
+    while len(self.todo) > 0 and not has_reset:
+      code = self.todo.pop()
+      if isinstance(code, Constant):
+        if code.name == 'r':
+          has_reset = True
+        else:
+          buf.append(code)
       elif isinstance(code, SparseSequence):
-        todo.append(code.fst)
-        todo.append(code.snd)
+        self.schedule(code)
+      elif isinstance(code, DenseSequence):
+        self.schedule(code)
+      else:
+        buf.append(code)
+    if not has_reset:
+      assert len(self.todo) == 0
+      self.todo = buf
+      return None
+    else:
+      continuation = DenseSequence(buf)
+      continuation = Quote(continuation)
+      return continuation
+
+  def push(self, code: Code):
+    self.data.append(code)
+
+  def pop(self) -> Code:
+    return self.data.pop()
+
+  def peek(self, index: int = 0) -> Code:
+    return self.data[-1-index]
+
+  def thunk(self):
+    assert self.point is not None
+    self.kill.extend(self.data)
+    self.kill.append(self.point)
+    self.data = []
+    self.point = None
+
+  def bail(self):
+    self.thunk()
+    self.kill.extend(self.todo)
+    self.todo = []
+
+class Event:
+  pass
+
+@dataclasses.dataclass(frozen=True)
+class OnVariable(Event):
+  state: State
+
+@dataclasses.dataclass(frozen=True)
+class OnAnnotation(Event):
+  state: State
+
+@dataclasses.dataclass(frozen=True)
+class OnCommand(Event):
+  state: State
+
+@dataclasses.dataclass(frozen=True)
+class OnResult(Event):
+  state: State
+
+class Evaluate:
+  def __call__(self, init: Code) -> Generator[Event, None, None]:
+    state = State(init)
+
+    while not state.is_done:
+      code = state.next()
+      if isinstance(code, Id):
+        pass
+      elif isinstance(code, DenseSequence):
+        state.schedule(code)
+      elif isinstance(code, SparseSequence):
+        state.schedule(code)
       elif isinstance(code, Quote):
-        data.append(code)
+        state.push(code)
       elif isinstance(code, String):
-        data.append(code)
+        state.push(code)
       elif isinstance(code, Natural):
-        data.append(code)
+        state.push(code)
       elif isinstance(code, Variable):
-        thunk()
-      elif isinstance(code, Id):
-        pass
+        yield OnVariable(state)
       elif isinstance(code, Annotation):
-        pass
+        yield OnAnnotation(state)
+      elif isinstance(code, Command):
+        yield OnCommand(state)
       elif isinstance(code, Constant):
         if code.name == 'a':
-          if len(data) == 0:
-            thunk()
+          if state.is_empty:
+            state.thunk()
           else:
-            block = data[-1]
+            block = state.peek()
             if not isinstance(block, Quote):
-              thunk()
+              state.thunk()
             else:
-              data.pop()
-              todo.append(block.body)
+              state.pop()
+              state.schedule(block.body)
         elif code.name == 'b':
-          if len(data) == 0:
-            thunk()
+          if state.is_empty:
+            state.thunk()
           else:
-            value = data.pop()
+            value = state.pop()
             value = Quote(value)
-            data.append(value)
+            state.push(value)
         elif code.name == 'c':
-          if len(data) < 2:
-            thunk()
+          if state.arity < 2:
+            state.thunk()
           else:
-            lhs = data[-2]
-            rhs = data[-1]
+            lhs = state.peek(1)
+            rhs = state.peek(0)
             if not isinstance(lhs, Quote) or not isinstance(rhs, Quote):
-              thunk()
+              state.thunk()
             else:
-              data.pop()
-              data.pop()
+              state.pop()
+              state.pop()
               block = SparseSequence(lhs.body, rhs.body)
               block = Quote(block)
-              data.append(block)
+              state.push(block)
         elif code.name == 'd':
-          if len(data) == 0:
-            thunk()
+          if state.is_empty:
+            state.thunk()
           else:
-            value = data[-1]
-            data.append(value)
+            value = state.peek()
+            state.push(value)
         elif code.name == 'e':
-          if len(data) == 0:
-            thunk()
+          if state.is_empty:
+            state.thunk()
           else:
-            data.pop()
+            state.pop()
         elif code.name == 'f':
-          if len(data) < 2:
-            thunk()
+          if state.arity < 2:
+            state.thunk()
           else:
-            fst = data.pop()
-            snd = data.pop()
-            data.append(fst)
-            data.append(snd)
+            fst = state.pop()
+            snd = state.pop()
+            state.push(fst)
+            state.push(snd)
         elif code.name == 'r':
-          thunk()
+          state.thunk()
         elif code.name == 's':
-          if len(data) == 0:
-            bail()
+          if state.is_empty:
+            state.bail()
           else:
-            value = data[-1]
+            value = state.peek()
             if not isinstance(value, Quote):
-              bail()
+              state.bail()
             else:
-              has_reset = False
-              buf = []
-              while len(todo) > 0 and not has_reset:
-                point = todo.pop()
-                if isinstance(point, Constant):
-                  if point.name == 'r':
-                    has_reset = True
-                  else:
-                    buf.append(point)
-                elif isinstance(point, SparseSequence):
-                  todo.append(point.snd)
-                  todo.append(point.fst)
-                elif isinstance(point, DenseSequence):
-                  todo.extend(reversed(point.body))
-                else:
-                  buf.append(point)
-              if not has_reset:
-                assert len(todo) == 0
-                bail()
-                kill.extend(buf)
+              context = state.jump()
+              if context is None:
+                state.bail()
               else:
-                data.pop()
-                continuation = DenseSequence(buf)
-                continuation = Quote(continuation)
-                data.append(continuation)
-                todo.append(value.body)
+                state.pop()
+                state.push(context)
+                state.schedule(value.body)
         else:
-          raise ValueError(f'unknown code: {code}')
+          raise EvaluateError(init, f'unknown code: {code}')
       else:
-        raise ValueError(f'unknown code: {code}')
+        raise EvaluateError(init, f'unknown code: {code}')
 
-    return DenseSequence(kill+data)
+    state.point = None
+    yield OnResult(state)
 
 class Database:
   value: Dict[str, Code]
@@ -330,12 +437,16 @@ class Database:
     if key in self.value:
       del self.value[key]
 
+  def __str__(self) -> str:
+    buf = [f'+{key} {value}' for key, value in self.value]
+    return '\n'.join(buf)
+
 def repl():
   db = Database()
   eval = Evaluate()
   while True:
-    line = input('abc> ')
-    if line == '__quit__':
+    line = input('abc> ').strip()
+    if line == '/quit':
       break
     try:
       if line.startswith('+'):
@@ -363,8 +474,20 @@ def repl():
         print(f'{name} = {name}')
       else:
         code = Code.from_string(line)
-        code = eval(code)
-        print(code)
+        for event in eval(code):
+          if isinstance(event, OnResult):
+            print(event.state.as_code)
+          elif isinstance(event, OnVariable):
+            point = event.state.point
+            if isinstance(point, Variable) and point.name in db:
+              binding = db[point.name]
+              event.state.schedule(binding)
+            else:
+              event.state.thunk()
+          elif isinstance(event, OnAnnotation):
+            pass
+          elif isinstance(event, OnCommand):
+            event.state.thunk()
     except Error as err:
       print(err)
 
@@ -386,17 +509,23 @@ if __name__ == '__main__':
     ['[foo] [bar] f f', '[foo] [bar]'],
     ['[foo] s bar baz qux', '[foo] s bar baz qux'],
     ['500 d', '500 500'],
-    ['"by john singer sargent" d', '"by john singer sargent" "by john singer sargent"'],
+    ['"an oil painting" d', '"an oil painting" "an oil painting"'],
   ]
 
   eval = Evaluate()
 
   for [source, expected] in examples:
     code = Code.from_string(source)
-    code = eval(code)
-    actual = f'{code}'
-    # print(f'{source} ?-> {actual} (expected {expected})')
-    assert actual == expected
-    print(f'{source} -> {actual}')
+    for event in eval(code):
+      if isinstance(event, OnResult):
+        actual = f'{event.state.as_code}'
+        assert actual == expected
+        print(f'{source} -> {actual}')
+      elif isinstance(event, OnVariable):
+        event.state.thunk()
+      elif isinstance(event, OnAnnotation):
+        pass
+      elif isinstance(event, OnCommand):
+        event.state.thunk()
 
   repl()
