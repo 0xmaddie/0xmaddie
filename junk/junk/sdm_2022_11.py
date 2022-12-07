@@ -153,7 +153,7 @@ class Model:
 
     if use_v2:
       self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
-        'stabilityai/stable-diffusion-2',
+        'stabilityai/stable-diffusion-2-1',
         revision                = 'fp16',
         torch_dtype             = torch.float16,
         local_files_only        = True,
