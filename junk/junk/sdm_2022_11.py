@@ -256,39 +256,38 @@ class Model:
       # print(f'image #{i*batch_size}-{i*batch_size+batch_size-1}')
       print(f'iteration {batch_id}')
 
-      with torch.autocast('cuda'):
-        # idk if its actually a no-op to have an empty string as a negative
-        # prompt, so i added this conditional
-        if initial_image is None:
-          images = self.text_to_image_pipeline(
-            prompt              = [prompt]*batch_size,
-            negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
-            height              = size[0],
-            width               = size[1],
-            guidance_scale      = guidance_scale,
-            num_inference_steps = num_inference_steps,
-            generator           = self.torch_rng,
-          ).images
-        else:
-          images = self.image_to_image_pipeline(
-            image               = get_image(initial_image),
-            strength            = image_denoise_strength,
-            prompt              = [prompt]*batch_size,
-            negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
-            guidance_scale      = guidance_scale,
-            num_inference_steps = num_inference_steps,
-            generator           = self.torch_rng,
-          ).images
-        result = PromptResult(
-          session_id             = session_id,
-          batch_id               = batch_id,
-          images                 = images,
-          prompt                 = prompt,
-          coprompt               = coprompt,
-          num_inference_steps    = num_inference_steps,
-          guidance_scale         = guidance_scale,
-          random_seed            = random_seed,
-          initial_image          = initial_image,
-          image_denoise_strength = image_denoise_strength,
-        )
-        yield result
+      # idk if its actually a no-op to have an empty string as a negative
+      # prompt, so i added this conditional
+      if initial_image is None:
+        images = self.text_to_image_pipeline(
+          prompt              = [prompt]*batch_size,
+          negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
+          height              = size[0],
+          width               = size[1],
+          guidance_scale      = guidance_scale,
+          num_inference_steps = num_inference_steps,
+          generator           = self.torch_rng,
+        ).images
+      else:
+        images = self.image_to_image_pipeline(
+          image               = get_image(initial_image),
+          strength            = image_denoise_strength,
+          prompt              = [prompt]*batch_size,
+          negative_prompt     = [coprompt]*batch_size if len(coprompt) > 0 else None,
+          guidance_scale      = guidance_scale,
+          num_inference_steps = num_inference_steps,
+          generator           = self.torch_rng,
+        ).images
+      result = PromptResult(
+        session_id             = session_id,
+        batch_id               = batch_id,
+        images                 = images,
+        prompt                 = prompt,
+        coprompt               = coprompt,
+        num_inference_steps    = num_inference_steps,
+        guidance_scale         = guidance_scale,
+        random_seed            = random_seed,
+        initial_image          = initial_image,
+        image_denoise_strength = image_denoise_strength,
+      )
+      yield result
