@@ -2,9 +2,11 @@ import re
 import dataclasses
 
 from typing import Optional
+from typing import Union
 from typing import List
 from typing import Dict
 from typing import Generator
+from typing import Iterator
 
 def is_valid_constant(token: str) -> bool:
   return re.match(r'^(a|b|c|d|e|f|r|s)$', token) is not None
@@ -12,7 +14,7 @@ def is_valid_constant(token: str) -> bool:
 def is_valid_variable(token: str) -> bool:
   return re.match(r'^[a-z][a-z0-9_]+$', token) is not None
 
-def is_valid_command(token: str) -> bool:
+def is_valid_bang(token: str) -> bool:
   return re.match(r'^![a-z][a-z0-9_]+$', token) is not None
 
 def is_separator(token: str) -> bool:
@@ -26,11 +28,14 @@ class Error(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class ReadError(Error):
-  code: str
   message: str
+  code: Optional[str] = None
 
   def __str__(self) -> str:
-    return f'error reading `{self.code}`:\n{self.message}'
+    if self.code:
+      return f'error reading `{self.code}`:\n{self.message}'
+    else:
+      return f'error while reading: {self.message}'
 
 @dataclasses.dataclass(frozen=True)
 class EvaluateError(Error):
@@ -40,9 +45,161 @@ class EvaluateError(Error):
   def __str__(self) -> str:
     return f'error evaluating `{self.code}`:\n{self.message}'
 
+class Token:
+  pass
+
+@dataclasses.dataclass(frozen=True)
+class TConst(Token):
+  name: str
+
+@dataclasses.dataclass(frozen=True)
+class TVar(Token):
+  name: str
+
+@dataclasses.dataclass(frozen=True)
+class TAnn(Token):
+  name: str
+
+@dataclasses.dataclass(frozen=True)
+class TBang(Token):
+  name: str
+
+@dataclasses.dataclass(frozen=True)
+class TStr(Token):
+  value: str
+
+@dataclasses.dataclass(frozen=True)
+class TNum(Token):
+  value: int
+
+@dataclasses.dataclass(frozen=True)
+class TBegin(Token):
+  pass
+
+@dataclasses.dataclass(frozen=True)
+class TEnd(Token):
+  pass
+
 class Code:
   @staticmethod
+  def tokenize(source: str) -> Iterator[Token]:
+    index = 0
+    while index < len(source):
+      if source[index] == '[':
+        yield TBegin()
+        index += 1
+      elif source[index] == ']':
+        yield TEnd()
+        index += 1
+      elif source[index] == '"':
+        index += 1
+        start = index
+        while index < len(source):
+          if source[index] == '"':
+            break
+          index += 1
+        if index >= len(source):
+          raise ReadError(f'unbalanced quotes', source)
+        body = source[start:index]
+        yield TStr(body)
+        index += 1
+      elif source[index] == '@':
+        start = index
+        index += 1
+        while index < len(source):
+          if is_separator(source[index]):
+            break
+          index += 1
+        body = source[start:index]
+        if is_valid_variable(body[1:]):
+          yield TAnn(body)
+        else:
+          raise ReadError(f'unknown symbol: {body}', source)
+      elif source[index] == '!':
+        start = index
+        index += 1
+        while index < len(source):
+          if is_separator(source[index]):
+            break
+          index += 1
+        body = source[start:index]
+        if is_valid_bang(body):
+          yield TBang(body)
+        else:
+          raise ReadError(f'unknown symbol: {body}', source)
+      elif source[index].isalpha() and source[index].islower():
+        start = index
+        index += 1
+        while index < len(source):
+          if is_separator(source[index]):
+            break
+          index += 1
+        body = source[start:index]
+        if is_valid_constant(body):
+          yield TConst(body)
+        elif is_valid_variable(body):
+          yield TVar(body)
+        else:
+          raise ReadError(f'unknown symbol: {body}', source)
+      elif source[index].isdigit():
+        start = index
+        index += 1
+        while index < len(source):
+          if is_separator(source[index]):
+            break
+          index += 1
+        body = source[start:index]
+        if body.isdigit():
+          yield TNum(int(body))
+        else:
+          raise ReadError(f'unknown symbol: {body}', source)
+      elif is_whitespace(source[index]):
+        while index < len(source):
+          if not is_whitespace(source[index]):
+            break
+          index += 1
+      else:
+        raise ReadError(f'unknown token: {source[index]}', source)
+
+  @staticmethod
   def from_string(source: str) -> 'Code':
+    return Code.from_tokens(Code.tokenize(source))
+
+  @staticmethod
+  def from_tokens(tokens: Iterator[Token]) -> 'Code':
+    build = []
+    stack = []
+    for token in tokens:
+      if isinstance(token, TBegin):
+        stack.append(build)
+        build = []
+      elif isinstance(token, TEnd):
+        if len(stack) == 0:
+          raise ReadError(message='unbalanced brackets')
+        code = Quote(DenseSequence(build))
+        build = stack.pop()
+        build.append(code)
+      elif isinstance(token, TConst):
+        build.append(Constant(token.name))
+      elif isinstance(token, TVar):
+        build.append(Variable(token.name))
+      elif isinstance(token, TNum):
+        build.append(Number(token.value))
+      elif isinstance(token, TStr):
+        build.append(String(token.value))
+      elif isinstance(token, TAnn):
+        build.append(Annotation(token.name))
+      elif isinstance(token, TBang):
+        build.append(Bang(token.name))
+      else:
+        raise ReadError(f'unknown token: {token}')
+    if len(stack) > 0:
+      raise ReadError(message='unbalanced brackets')
+    return DenseSequence(build)
+
+  '''
+  @staticmethod
+  def from_string_2022_12_09(source: str) -> 'Code':
     index = 0
     build = []
     stack = []
@@ -93,8 +250,8 @@ class Code:
             break
           index += 1
         body = source[start:index]
-        if is_valid_command(body):
-          code = Command(body)
+        if is_valid_bang(body):
+          code = Bang(body)
           build.append(code)
         else:
           raise ReadError(source, f'unknown symbol: {body}')
@@ -123,7 +280,7 @@ class Code:
           index += 1
         body = source[start:index]
         if body.isdigit():
-          code = Natural(int(body))
+          code = Number(int(body))
           build.append(code)
         else:
           raise ReadError(source, f'unknown symbol: {body}')
@@ -137,6 +294,7 @@ class Code:
     if len(stack) > 0:
       raise ReadError(source, f'unbalanced brackets')
     return DenseSequence(build)
+  '''
 
 @dataclasses.dataclass(frozen=True)
 class Id(Code):
@@ -165,7 +323,7 @@ class Annotation(Code):
     return self.name
 
 @dataclasses.dataclass(frozen=True)
-class Command(Code):
+class Bang(Code):
   name: str
 
   def __str__(self):
@@ -202,7 +360,7 @@ class String(Code):
     return f'"{self.value}"'
 
 @dataclasses.dataclass(frozen=True)
-class Natural(Code):
+class Number(Code):
   value: int
 
   def __str__(self) -> str:
@@ -311,7 +469,7 @@ class OnAnnotation(Event):
   state: State
 
 @dataclasses.dataclass(frozen=True)
-class OnCommand(Event):
+class OnBang(Event):
   state: State
 
 @dataclasses.dataclass(frozen=True)
@@ -334,14 +492,14 @@ class Evaluate:
         state.push(code)
       elif isinstance(code, String):
         state.push(code)
-      elif isinstance(code, Natural):
+      elif isinstance(code, Number):
         state.push(code)
       elif isinstance(code, Variable):
         yield OnVariable(state)
       elif isinstance(code, Annotation):
         yield OnAnnotation(state)
-      elif isinstance(code, Command):
-        yield OnCommand(state)
+      elif isinstance(code, Bang):
+        yield OnBang(state)
       elif isinstance(code, Constant):
         if code.name == 'a':
           if state.is_empty:
@@ -463,6 +621,8 @@ def repl():
           name = chunks[0]
           if not is_valid_variable(name):
             print(f'invalid word: {name}')
+          elif name in db:
+            print(f'{name} = {db[name]}')
           else:
             print(f'{name} = {name}')
       elif line.startswith('-'):
@@ -486,7 +646,7 @@ def repl():
               event.state.thunk()
           elif isinstance(event, OnAnnotation):
             pass
-          elif isinstance(event, OnCommand):
+          elif isinstance(event, OnBang):
             event.state.thunk()
     except Error as err:
       print(err)
@@ -525,7 +685,7 @@ if __name__ == '__main__':
         event.state.thunk()
       elif isinstance(event, OnAnnotation):
         pass
-      elif isinstance(event, OnCommand):
+      elif isinstance(event, OnBang):
         event.state.thunk()
 
   repl()
