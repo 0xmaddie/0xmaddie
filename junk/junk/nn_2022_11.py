@@ -154,9 +154,9 @@ class Mixer:
       state = layer_norm(state)
 
     state = sp.special.softmax(state@decode, axis=-1)
-    
-    return state
 
+    return state
+  
 class Dictionary:
   tokens: List[str]
   one_hot: np.ndarray

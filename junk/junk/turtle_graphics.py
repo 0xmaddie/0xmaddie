@@ -15,7 +15,7 @@ class Turtle:
     self.width  = width
     self.height = height
 
-  def __call__(self, code: str) -> PIL.Image:
+  def __call__(self, code: str):
     weights = junk.nn.use_weights((6,))
     surface = cairo.ImageSurface(
       cairo.FORMAT_ARGB32,

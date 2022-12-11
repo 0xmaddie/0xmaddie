@@ -18,6 +18,7 @@ dependencies = [
   "accelerate",
   "bitsandbytes",
   "ftfy",
+  # "playwright",
   "diffusers @ git+https://github.com/huggingface/diffusers",
 ]
 

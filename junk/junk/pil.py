@@ -18,7 +18,7 @@ def cat(images, rows, cols):
 
 def from_cairo(
   sx: cairo.ImageSurface,
-) -> PIL.Image.Image:
+):
   image = PIL.Image.frombuffer(
     'RGBA',
     (sx.get_width(), sx.get_height()),

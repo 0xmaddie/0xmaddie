@@ -1,5 +1,5 @@
 import os
-import IPython
+# import IPython
 
 def rawvideo_to_gif(
   source: str    = 'source.raw',
