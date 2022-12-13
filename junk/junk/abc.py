@@ -46,43 +46,8 @@ class EvaluateError(Error):
     return f'error evaluating `{self.code}`:\n{self.message}'
 
 class Token:
-  pass
-
-@dataclasses.dataclass(frozen=True)
-class TConst(Token):
-  name: str
-
-@dataclasses.dataclass(frozen=True)
-class TVar(Token):
-  name: str
-
-@dataclasses.dataclass(frozen=True)
-class TAnn(Token):
-  name: str
-
-@dataclasses.dataclass(frozen=True)
-class TBang(Token):
-  name: str
-
-@dataclasses.dataclass(frozen=True)
-class TStr(Token):
-  value: str
-
-@dataclasses.dataclass(frozen=True)
-class TNum(Token):
-  value: int
-
-@dataclasses.dataclass(frozen=True)
-class TBegin(Token):
-  pass
-
-@dataclasses.dataclass(frozen=True)
-class TEnd(Token):
-  pass
-
-class Code:
   @staticmethod
-  def tokenize(source: str) -> Iterator[Token]:
+  def from_string(source: str) -> Iterator['Token']:
     index = 0
     while index < len(source):
       if source[index] == '[':
@@ -153,6 +118,12 @@ class Code:
           yield TNum(int(body))
         else:
           raise ReadError(f'unknown symbol: {body}', source)
+      elif source[index] == '+':
+        yield TAdd()
+        index += 1
+      elif source[index] == '-':
+        yield TDel()
+        index += 1
       elif is_whitespace(source[index]):
         while index < len(source):
           if not is_whitespace(source[index]):
@@ -162,139 +133,142 @@ class Code:
         raise ReadError(f'unknown token: {source[index]}', source)
 
   @staticmethod
+  def from_code(code: 'Code') -> Iterator['Token']:
+    if isinstance(code, Id):
+      pass
+    elif isinstance(code, Constant):
+      yield TConst(code.name)
+    elif isinstance(code, Variable):
+      yield TVar(code.name)
+    elif isinstance(code, Number):
+      yield TNum(code.value)
+    elif isinstance(code, String):
+      yield TStr(code.value)
+    elif isinstance(code, Annotation):
+      yield TAnn(code.name)
+    elif isinstance(code, Bang):
+      yield TBang(code.name)
+    elif isinstance(code, Quote):
+      yield from Token.from_code(code.body)
+    elif isinstance(code, DenseSequence):
+      for child in code.body:
+        yield from Token.from_code(child)
+    elif isinstance(code, SparseSequence):
+      yield from Token.from_code(code.fst)
+      yield from Token.from_code(code.snd)
+    else:
+      raise ValueError('unreachable')
+
+@dataclasses.dataclass(frozen=True)
+class TConst(Token):
+  name: str
+
+  def __str__(self) -> str:
+    return self.name
+
+@dataclasses.dataclass(frozen=True)
+class TVar(Token):
+  name: str
+
+  def __str__(self) -> str:
+    return self.name
+
+@dataclasses.dataclass(frozen=True)
+class TAnn(Token):
+  name: str
+
+  def __str__(self) -> str:
+    return f'@{self.name}'
+
+@dataclasses.dataclass(frozen=True)
+class TBang(Token):
+  name: str
+
+  def __str__(self) -> str:
+    return f'!{self.name}'
+
+@dataclasses.dataclass(frozen=True)
+class TStr(Token):
+  value: str
+
+  def __str__(self) -> str:
+    return f'"{self.value}"'
+
+@dataclasses.dataclass(frozen=True)
+class TNum(Token):
+  value: int
+
+  def __str__(self) -> str:
+    return f'{self.value}'
+
+@dataclasses.dataclass(frozen=True)
+class TBegin(Token):
+  def __str__(self) -> str:
+    return '['
+
+@dataclasses.dataclass(frozen=True)
+class TEnd(Token):
+  def __str__(self) -> str:
+    return ']'
+
+@dataclasses.dataclass(frozen=True)
+class TAdd(Token):
+  def __str__(self) -> str:
+    return '+'
+
+@dataclasses.dataclass(frozen=True)
+class TDel(Token):
+  def __str__(self) -> str:
+    return '-'
+
+@dataclasses.dataclass(frozen=True)
+class TNl(Token):
+  def __str__(self) -> str:
+    return '\n'
+
+class Code:
+  @staticmethod
   def from_string(source: str) -> 'Code':
-    return Code.from_tokens(Code.tokenize(source))
+    return Code.from_tokens(Token.from_string(source))
 
   @staticmethod
   def from_tokens(tokens: Iterator[Token]) -> 'Code':
     build = []
     stack = []
-    for token in tokens:
-      if isinstance(token, TBegin):
-        stack.append(build)
-        build = []
-      elif isinstance(token, TEnd):
-        if len(stack) == 0:
-          raise ReadError(message='unbalanced brackets')
-        code = Quote(DenseSequence(build))
-        build = stack.pop()
-        build.append(code)
-      elif isinstance(token, TConst):
-        build.append(Constant(token.name))
-      elif isinstance(token, TVar):
-        build.append(Variable(token.name))
-      elif isinstance(token, TNum):
-        build.append(Number(token.value))
-      elif isinstance(token, TStr):
-        build.append(String(token.value))
-      elif isinstance(token, TAnn):
-        build.append(Annotation(token.name))
-      elif isinstance(token, TBang):
-        build.append(Bang(token.name))
-      else:
-        raise ReadError(f'unknown token: {token}')
+    done = False
+    while not done:
+      try:
+        token = next(tokens)
+        if isinstance(token, TNl):
+          done = True
+        elif isinstance(token, TBegin):
+          stack.append(build)
+          build = []
+        elif isinstance(token, TEnd):
+          if len(stack) == 0:
+            raise ReadError(message='unbalanced brackets')
+          code = Quote(DenseSequence(build))
+          build = stack.pop()
+          build.append(code)
+        elif isinstance(token, TConst):
+          build.append(Constant(token.name))
+        elif isinstance(token, TVar):
+          build.append(Variable(token.name))
+        elif isinstance(token, TNum):
+          build.append(Number(token.value))
+        elif isinstance(token, TStr):
+          build.append(String(token.value))
+        elif isinstance(token, TAnn):
+          build.append(Annotation(token.name))
+        elif isinstance(token, TBang):
+          build.append(Bang(token.name))
+        else:
+          raise ReadError(f'unknown token: {token}')
+      except StopIteration:
+        done = True
     if len(stack) > 0:
       raise ReadError(message='unbalanced brackets')
     return DenseSequence(build)
-
-  '''
-  @staticmethod
-  def from_string_2022_12_09(source: str) -> 'Code':
-    index = 0
-    build = []
-    stack = []
-    while index < len(source):
-      if source[index] == '[':
-        stack.append(build)
-        build = []
-        index += 1
-      elif source[index] == ']':
-        if len(stack) == 0:
-          raise ReadError(source, f'unbalanced brackets')
-        code = DenseSequence(build)
-        code = Quote(code)
-        build = stack.pop()
-        build.append(code)
-        index += 1
-      elif source[index] == '"':
-        index += 1
-        start = index
-        while index < len(source):
-          if source[index] == '"':
-            break
-          index += 1
-        if index >= len(source):
-          raise ReadError(source, f'unbalanced quotes')
-        body = source[start:index]
-        code = String(body)
-        build.append(code)
-        index += 1
-      elif source[index] == '@':
-        start = index
-        index += 1
-        while index < len(source):
-          if is_separator(source[index]):
-            break
-          index += 1
-        body = source[start:index]
-        if is_valid_variable(body[1:]):
-          code = Annotation(body)
-          build.append(code)
-        else:
-          raise ReadError(source, f'unknown symbol: {body}')
-      elif source[index] == '!':
-        start = index
-        index += 1
-        while index < len(source):
-          if is_separator(source[index]):
-            break
-          index += 1
-        body = source[start:index]
-        if is_valid_bang(body):
-          code = Bang(body)
-          build.append(code)
-        else:
-          raise ReadError(source, f'unknown symbol: {body}')
-      elif source[index].isalpha() and source[index].islower():
-        start = index
-        index += 1
-        while index < len(source):
-          if is_separator(source[index]):
-            break
-          index += 1
-        body = source[start:index]
-        if is_valid_constant(body):
-          code = Constant(body)
-          build.append(code)
-        elif is_valid_variable(body):
-          code = Variable(body)
-          build.append(code)
-        else:
-          raise ReadError(source, f'unknown symbol: {body}')
-      elif source[index].isdigit():
-        start = index
-        index += 1
-        while index < len(source):
-          if is_separator(source[index]):
-            break
-          index += 1
-        body = source[start:index]
-        if body.isdigit():
-          code = Number(int(body))
-          build.append(code)
-        else:
-          raise ReadError(source, f'unknown symbol: {body}')
-      elif is_whitespace(source[index]):
-        while index < len(source):
-          if not is_whitespace(source[index]):
-            break
-          index += 1
-      else:
-        raise ReadError(source, f'unknown token: {source[index]}')
-    if len(stack) > 0:
-      raise ReadError(source, f'unbalanced brackets')
-    return DenseSequence(build)
-  '''
 
 @dataclasses.dataclass(frozen=True)
 class Id(Code):
@@ -461,23 +435,23 @@ class Event:
   pass
 
 @dataclasses.dataclass(frozen=True)
-class OnVariable(Event):
+class EVar(Event):
   state: State
 
 @dataclasses.dataclass(frozen=True)
-class OnAnnotation(Event):
+class EAnn(Event):
   state: State
 
 @dataclasses.dataclass(frozen=True)
-class OnBang(Event):
+class EBang(Event):
   state: State
 
 @dataclasses.dataclass(frozen=True)
-class OnResult(Event):
+class EDone(Event):
   state: State
 
-class Evaluate:
-  def __call__(self, init: Code) -> Generator[Event, None, None]:
+class Evaluator:
+  def __call__(self, init: Code) -> Iterator[Event]:
     state = State(init)
 
     while not state.is_done:
@@ -495,11 +469,11 @@ class Evaluate:
       elif isinstance(code, Number):
         state.push(code)
       elif isinstance(code, Variable):
-        yield OnVariable(state)
+        yield EVar(state)
       elif isinstance(code, Annotation):
-        yield OnAnnotation(state)
+        yield EAnn(state)
       elif isinstance(code, Bang):
-        yield OnBang(state)
+        yield EBang(state)
       elif isinstance(code, Constant):
         if code.name == 'a':
           if state.is_empty:
@@ -574,7 +548,65 @@ class Evaluate:
         raise EvaluateError(init, f'unknown code: {code}')
 
     state.point = None
-    yield OnResult(state)
+    yield EDone(state)
+
+class Command:
+  @staticmethod
+  def from_string(source: str) -> 'Command':
+    return Command.from_tokens(Token.from_string(source))
+
+  @staticmethod
+  def from_tokens(tokens: Iterator[Token]) -> 'Command':
+    prefix = next(tokens)
+    if isinstance(prefix, TAdd):
+      maybe_var = next(tokens)
+      if not isinstance(maybe_var, TVar):
+        msg = ''
+        msg += 'while reading an ADD command,\n'
+        msg += 'encountered an unexpected symbol: '
+        msg += f'{maybe_var}'
+        raise ReadError(msg)
+      key = Variable(maybe_var.name)
+      value = Code.from_tokens(tokens)
+      return CAdd(key, value)
+    elif isinstance(prefix, TDel):
+      maybe_var = next(tokens)
+      if not isinstance(maybe_var, TVar):
+        msg = ''
+        msg += 'while reading a DEL command,\n'
+        msg += 'encountered an unexpected symbol: '
+        msg += f'{maybe_var}'
+        raise ReadError(msg)
+      key = Variable(maybe_var.name)
+      return CDel(key)
+    else:
+      def iterator():
+        yield prefix
+        yield from tokens
+      value = Code.from_tokens(iterator())
+      return CEval(value)
+
+@dataclasses.dataclass(frozen=True)
+class CAdd(Command):
+  key: Variable
+  value: Code
+
+  def __str__(self) -> str:
+    return f'+{self.key} {self.value}'
+
+@dataclasses.dataclass(frozen=True)
+class CDel(Command):
+  key: Variable
+
+  def __str__(self) -> str:
+    return f'-{self.key}'
+
+@dataclasses.dataclass(frozen=True)
+class CEval(Command):
+  value: Code
+
+  def __str__(self) -> str:
+    return f'{self.value}'
 
 class Database:
   value: Dict[str, Code]
@@ -582,74 +614,84 @@ class Database:
   def __init__(self):
     self.value = {}
 
-  def __contains__(self, key: str) -> bool:
-    return key in self.value
+  def __contains__(
+    self,
+    key: str | Variable,
+  ) -> bool:
+    if isinstance(key, str):
+      return key in self.value
+    return key.name in self.value
 
-  def __getitem__(self, key: str) -> Code:
-    return self.value[key]
+  def __getitem__(
+    self,
+    key: str | Variable,
+  ) -> Code:
+    if isinstance(key, str):
+      return self.value[key]
+    return self.value[key.name]
 
-  def __setitem__(self, key: str, value: Code):
-    self.value[key] = value
+  def __setitem__(
+    self,
+    key: str | Variable,
+    value: Code,
+  ):
+    if isinstance(key, str):
+      self.value[key] = value
+    else:
+      self.value[key.name] = value
 
-  def __delitem__(self, key: str):
-    if key in self.value:
-      del self.value[key]
+  def __delitem__(
+    self,
+    key: str | Variable,
+  ):
+    if isinstance(key, str):
+      if key in self.value:
+        del self.value[key]
+    else:
+      if key.name in self.value:
+        del self.value[key.name]
 
   def __str__(self) -> str:
     buf = [f'+{key} {value}' for key, value in self.value]
     return '\n'.join(buf)
 
-def repl():
+def shell():
   db = Database()
-  eval = Evaluate()
-  while True:
-    line = input('abc> ').strip()
-    if line == '/quit':
-      break
+  eval = Evaluator()
+  done = False
+  while not done:
     try:
-      if line.startswith('+'):
-        chunks = line[1:].split(' ', maxsplit=1)
-        if len(chunks) == 2:
-          name, body = chunks
-          if not is_valid_variable(name):
-            print(f'invalid word: {name}')
-          else:
-            code = Code.from_string(body)
-            db[name] = code
-            print(f'{name} = {code}')
-        else:
-          name = chunks[0]
-          if not is_valid_variable(name):
-            print(f'invalid word: {name}')
-          elif name in db:
-            print(f'{name} = {db[name]}')
-          else:
-            print(f'{name} = {name}')
-      elif line.startswith('-'):
-        name = line[1:].strip()
-        if not is_valid_variable(name):
-          print(f'invalid word: {name}')
-        if name in db:
-          del db[name]
-        print(f'{name} = {name}')
-      else:
-        code = Code.from_string(line)
-        for event in eval(code):
-          if isinstance(event, OnResult):
+      line = input('abc> ').strip()
+      cmd = Command.from_string(line)
+      if isinstance(cmd, CAdd):
+        db[cmd.key] = cmd.value
+        print(cmd)
+      elif isinstance(cmd, CDel):
+        del db[cmd.key]
+        print(cmd)
+      elif isinstance(cmd, CEval):
+        for event in eval(cmd.value):
+          if isinstance(event, EDone):
             print(event.state.as_code)
-          elif isinstance(event, OnVariable):
-            point = event.state.point
-            if isinstance(point, Variable) and point.name in db:
-              binding = db[point.name]
-              event.state.schedule(binding)
+          elif isinstance(event, EVar):
+            key = event.state.point
+            assert isinstance(key, Variable)
+            if key in db:
+              binding = db[key]
+              event.state.push(binding)
             else:
               event.state.thunk()
-          elif isinstance(event, OnAnnotation):
-            pass
-          elif isinstance(event, OnBang):
+          elif isinstance(event, EBang):
             event.state.thunk()
-    except Error as err:
+          elif isinstance(event, EAnn):
+            pass
+      else:
+        raise ValueError(f'unknown command: {cmd}')
+    except ReadError as err:
       print(err)
+    except KeyboardInterrupt:
+      done = True
+  print('\nbye')
 
 if __name__ == '__main__':
   examples = [
@@ -672,20 +714,21 @@ if __name__ == '__main__':
     ['"an oil painting" d', '"an oil painting" "an oil painting"'],
   ]
 
-  eval = Evaluate()
+  eval = Evaluator()
 
   for [source, expected] in examples:
     code = Code.from_string(source)
     for event in eval(code):
-      if isinstance(event, OnResult):
+      if isinstance(event, EDone):
         actual = f'{event.state.as_code}'
         assert actual == expected
         print(f'{source} -> {actual}')
-      elif isinstance(event, OnVariable):
+      elif isinstance(event, EVar):
         event.state.thunk()
-      elif isinstance(event, OnAnnotation):
+      elif isinstance(event, EAnn):
         pass
-      elif isinstance(event, OnBang):
+      elif isinstance(event, EBang):
         event.state.thunk()
 
-  repl()
+  # repl()
+  shell()
