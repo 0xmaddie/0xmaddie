@@ -81,6 +81,11 @@ class PromptContext:
     filter = _normalize_filter(filter)
     return filter in self.cofilters
 
+def set_size(width: int, height: int):
+  global _prompt_context
+  assert _prompt_context is not None
+  _prompt_context.size = (height, width)
+
 def push(filter):
   global _prompt_context
   assert _prompt_context is not None
