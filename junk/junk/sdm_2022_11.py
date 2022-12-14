@@ -159,8 +159,8 @@ class Model:
     if use_v2:
       self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
         'stabilityai/stable-diffusion-2-1',
-        revision                = 'fp16',
-        torch_dtype             = torch.float16,
+        # revision                = 'fp16',
+        # torch_dtype             = torch.float16,
         local_files_only        = True,
         cache_dir               = workspace_dir,
         safety_checker          = None,
@@ -173,8 +173,8 @@ class Model:
       )
       self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
         'runwayml/stable-diffusion-v1-5',
-        revision                = 'fp16',
-        torch_dtype             = torch.float16,
+        # revision                = 'fp16',
+        # torch_dtype             = torch.float16,
         local_files_only        = True,
         cache_dir               = workspace_dir,
         vae                     = finetuned_vae,
