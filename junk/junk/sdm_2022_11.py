@@ -157,8 +157,13 @@ class Model:
     self.torch_rng = torch.Generator('cuda')
 
     if use_v2:
+      model_name = 'stabilityai/stable-diffusion-2-1'
+    else:
+      model_name = 'runwayml/stable-diffusion-v1-5'
+
+    if use_v2:
       self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
-        'stabilityai/stable-diffusion-2-1',
+        model_name,
         # revision                = 'fp16',
         # torch_dtype             = torch.float16,
         local_files_only        = True,
@@ -172,7 +177,7 @@ class Model:
         cache_dir = workspace_dir,
       )
       self.text_to_image_pipeline = diffusers.StableDiffusionPipeline.from_pretrained(
-        'runwayml/stable-diffusion-v1-5',
+        model_name,
         # revision                = 'fp16',
         # torch_dtype             = torch.float16,
         local_files_only        = True,
@@ -201,7 +206,7 @@ class Model:
     log.remove()
     log.add(sys.stderr, level='TRACE', format=log_format)
     log.add(f'{workspace_dir}/log', level='INFO', format=log_format)
-    log.success(f'loaded model: {"v2" if use_v2 else "v1.5"}')
+    log.success(f'loaded model: {model_name}')
 
   def generate(self, prompt_fn, batch_size, iterations):
     session_id = int(time.time())
