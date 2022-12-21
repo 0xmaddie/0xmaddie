@@ -6,6 +6,7 @@ import functools as fn
 import numpy as np
 import cairo
 import opensimplex
+import PIL
 
 from typing import Tuple
 from typing import List
@@ -19,12 +20,8 @@ class WeightContext:
   stack: List[int]
   index: int = 0
   
-  def __init__(self, weights: np.ndarray | int | float):
-    if isinstance(weights, np.ndarray):
-      self.weights = weights
-    else:
-      rng = np.random.default_rng()
-      self.weights = rng.standard_normal(int(weights))
+  def __init__(self, weights: np.ndarray):
+    self.weights = weights
     self.stack = []
 
   def __enter__(self):
@@ -56,6 +53,11 @@ def use_weights(shape: Tuple[int, ...]) -> np.ndarray:
   global _weight_context
   ctx = _weight_context[-1]
   return ctx.use_weights(shape)
+
+def random_weights(size: int | float) -> WeightContext:
+  rng = np.random.default_rng()
+  buf = rng.standard_normal((int(size),))
+  return WeightContext(buf)
 
 def relu(src: np.ndarray) -> np.ndarray:
   dst = np.maximum(src, 0)
@@ -126,13 +128,13 @@ def draw_pendulum_example():
 
   window = 1.25
   iterations = 4096
-  with WeightContext(1e4) as weights:
+  with random_weights(1e3) as wx:
     for j in range(0, 4):
       for i in range(0, iterations):
-        residual = (-window/2)+i*((1/iterations)*window)
-        weights.save()
+        residual = i*(1/iterations)*window-(window/2)
+        wx.save()
         x, y = pendulum(residual)
-        weights.restore()
+        wx.restore()
         radius = 2/128
         ctx.arc(x, y, radius, 0, 2*math.pi)
         # super pink
@@ -146,7 +148,48 @@ def draw_pendulum_example():
   # Exit normalized device coordinates.
   ctx.restore()
 
-  surface.write_to_png(f'cairo_template_{int(time.time())}.png')
+  # pixels = surface.get_data()
+  # sys.stdout.buffer.write(pixels)
+  filename = f'sketch_{int(time.time())}.png'
+  surface.write_to_png(filename)
+  print(f'wrote {filename}')
+
+def tixy():
+  width, height = 512, 512
+  rows, cols = 64, 64
+  framerate = 15
+  seconds = 3
+  num_frames = framerate*seconds
+  image = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
+  ctx = cairo.Context(image)
+  with random_weights(1e8) as wx:
+    encode = use_weights((2, 64))
+    decode = use_weights((64, 3))
+    for frame in range(num_frames):
+      t = frame/num_frames
+      # print(f'frame: {frame}/{num_frames}', file=sys.stderr)
+      ctx.set_source_rgb(0.0, 0.0, 0.0)
+      ctx.paint()
+      for col in range(cols):
+        for row in range(rows):
+          ndc_x = (col/cols)+np.cos(t*2*np.pi)
+          ndc_y = (row/rows)+np.sin(t*2*np.pi)
+          state = np.array([ndc_x, ndc_y])
+          wx.save()
+          value = resnet(state@encode, depth=2)@decode
+          wx.restore()
+          red, green, blue = np.exp(-np.abs(value))
+          # print(f'value = {value}', file=sys.stderr)
+          ctx.new_path()
+          ctx.set_source_rgb(red, green, blue)
+          ctx.rectangle(
+            col*(width/cols), row*(height/rows),
+            width/cols, height/rows,
+          )
+          ctx.fill()
+      pixels = image.get_data()
+      sys.stdout.buffer.write(pixels)
 
 if __name__ == '__main__':
-  draw_pendulum_example()
+  # draw_pendulum_example()
+  tixy()
