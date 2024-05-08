@@ -309,11 +309,12 @@ class Pair(Object):
 
   def __getitem__(self, index):
     self.assert_list()
+    state = index
     xs = self
     while not xs.is_nil:
-      if index == 0:
+      if state == 0:
         return xs.fst
-      index = index-1
+      state = state-1
       xs    = xs.snd
     message = f'List index out of bounds: {index}.'
     raise error(message)

@@ -1,0 +1,21 @@
+[project]
+name = "llama"
+version = "1.0.0"
+authors = [
+  { name="Madison Brooks", email="maddie@sweetp.xyz" },
+]
+description = "Utility code for Meta's Llama language model."
+readme = "readme.md"
+requires-python = ">=3.10"
+dependencies = [
+  # "pycairo",
+  # "numpy",
+  # "loguru",
+  'bitsandbytes',
+  'accelerate',
+  'transformers',
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
