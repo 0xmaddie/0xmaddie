@@ -105,6 +105,11 @@ class Object:
       raise error(message)
     return self.name
 
+  def assert_symbol(self):
+    if not self.is_symbol:
+      message = f'Expected a symbol:, but got {self}.'
+      raise error(message)
+
   def assert_constant(self):
     if not self.is_constant:
       message = f'Expected a constant:, but got {self}.'
@@ -207,7 +212,7 @@ class Object:
 
   @property
   def length(self):
-    message = f'The object {Self} does not have an attribute named `length`.'
+    message = f'The object {self} does not have an attribute named `length`.'
     raise error(message)
 
   def __contains__(self, key):
@@ -224,9 +229,6 @@ class Object:
 
   def __str__(self):
     return _show(self)
-
-  def __eq__(self, rhs):
-    return _equals(self, rhs)
 
 class State:
   @property
@@ -473,7 +475,7 @@ class Environment(Object):
           name = variable(name)
         self[name] = value
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, eq=False)
 class Lift(Object):
   __body: Callable[[Object, Object, Context, 'Lisp'], State]
 
@@ -489,7 +491,7 @@ class Lift(Object):
   def body(self):
     return self.__body
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, eq=False)
 class Abstract(Object):
   __head: Object
   __body: Object
@@ -520,7 +522,7 @@ class Abstract(Object):
   def lexical(self):
     return self.__lexical
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, eq=False)
 class Wrap(Object):
   __body: Object
 
@@ -544,6 +546,9 @@ class Ok(State):
   def is_ok(self):
     return True
 
+  def __str__(self):
+    return f'#<ok {self.object}>'
+
 @dataclasses.dataclass(frozen=True)
 class Eval(State):
   object: Object
@@ -553,6 +558,9 @@ class Eval(State):
   @property
   def is_eval(self):
     return True
+
+  def __str__(self):
+    return f'#<eval {self.object}>'
 
 @dataclasses.dataclass(frozen=True)
 class Evlis(State):
@@ -564,6 +572,9 @@ class Evlis(State):
   def is_evlis(self):
     return True
 
+  def __str__(self):
+    return f'#<evlis {self.object}>'
+
 @dataclasses.dataclass(frozen=True)
 class Exec(State):
   object: Object
@@ -573,6 +584,9 @@ class Exec(State):
   @property
   def is_exec(self):
     return True
+
+  def __str__(self):
+    return f'#<exec {self.object}>'
 
 @dataclasses.dataclass(frozen=True)
 class Apply(State):
@@ -584,6 +598,9 @@ class Apply(State):
   @property
   def is_apply(self):
     return True
+
+  def __str__(self):
+    return f'#<apply {self.object}>'
 
 def _lisp_list(args, env, go):
   def go_args(args):
@@ -652,7 +669,7 @@ def _lisp_div(args, env, go):
     return go(number(state))
   return evlis(args, env, go_args)
 
-def standard_environment():
+def initial_environment():
   body = {}
 
   body['True']  = boolean(True)
@@ -794,14 +811,14 @@ def ok(object):
 
 def eval(value, env=None, go=ok):
   if env is None:
-    env = standard_environment()
+    env = initial_environment()
   else:
     env.assert_environment()
   return Eval(value, env, go)
 
 def evlis(value, env=None, go=ok):
   if env is None:
-    env = standard_environment()
+    env = initial_environment()
   else:
     env.assert_environment()
   value.assert_list()
@@ -809,7 +826,7 @@ def evlis(value, env=None, go=ok):
 
 def exec(value, env=None, go=None):
   if env is None:
-    env = standard_environment()
+    env = initial_environment()
   else:
     env.assert_environment()
   value.assert_list()
@@ -817,12 +834,46 @@ def exec(value, env=None, go=None):
 
 def apply(proc, args, env=None, go=None):
   if env is None:
-    env = standard_environment()
+    env = initial_environment()
   else:
     env.assert_environment()
   proc.assert_procedure()
   args.assert_list()
   return Apply(proc, args, env, go)
+
+def is_lparen(source, index):
+  return source[index] == '('
+
+def is_rparen(source, index):
+  return source[index] == ')'
+
+def is_begin_string(source, index):
+  return source[index] == '"'
+
+def is_end_string(source, index):
+  if index == 0:
+    return False
+  return source[index] == '"' and source[index-1] != '\\'
+
+def is_whitespace(source, index):
+  return source[index] in [' ', '\t', '\r', '\n']
+
+def is_separator(source, index):
+  if is_lparen(source, index):
+    return True
+  if is_rparen(source, index):
+    return True
+  if is_begin_string(source, index):
+    return True
+  if is_whitespace(source, index):
+    return True
+  return False
+
+def is_unreadable(symbol):
+  return symbol.startswith('#<')
+
+def is_constant(symbol):
+  return len(symbol) > 0 and symbol[0].isupper()
 
 def read(source: str):
   stack = []
@@ -832,30 +883,21 @@ def read(source: str):
   def seek_while(fn):
     nonlocal source
     nonlocal index
-    while index < len(source) and fn(source[index]):
+    while index < len(source) and fn(source, index):
       index += 1
 
   def seek_until(fn):
     nonlocal source
     nonlocal index
-    while index < len(source) and not fn(source[index]):
+    while index < len(source) and not fn(source, index):
       index += 1
 
-  is_lparen     = lambda x: x == '('
-  is_rparen     = lambda x: x == ')'
-  is_paren      = lambda x: x in ['(', ')']
-  is_quote      = lambda x: x == '"'
-  is_whitespace = lambda x: x in [' ', '\t', '\r', '\n']
-  is_separator  = lambda x: is_paren(x) or is_quote(x) or is_whitespace(x)
-  is_unreadable = lambda x: x.startswith('#<')
-  is_constant   = lambda x: x[0].isupper()
-
   while index < len(source):
-    if is_lparen(source[index]):
+    if is_lparen(source, index):
       stack.append(build)
       build = []
       index += 1
-    elif is_rparen(source[index]):
+    elif is_rparen(source, index):
       if len(stack) == 0:
         msg = f'Unbalanced parentheses within source code:\n{source}'
         raise error(msg)
@@ -863,14 +905,14 @@ def read(source: str):
       build = stack.pop()
       build.append(xs)
       index += 1
-    elif is_quote(source[index]):
+    elif is_begin_string(source, index):
       index += 1
       start  = index
-      seek_until(is_quote)
+      seek_until(is_end_string)
       body = source[start:index]
       build.append(string(body))
       index += 1
-    elif is_whitespace(source[index]):
+    elif is_whitespace(source, index):
       seek_while(is_whitespace)
     else:
       start = index
@@ -925,52 +967,13 @@ def _show(obj):
       msg = f'Cannot show the unknown object {obj}.'
       raise error(msg)
 
-def _equals(lhs, rhs):
-  match lhs:
-    case Nil():
-      return rhs.is_nil
-    case Pair(lhs_fst, lhs_snd):
-      match rhs:
-        case Pair(rhs_fst, rhs_snd):
-          if _equals(lhs_fst, rhs_fst):
-            return _equals(lhs_snd, rhs_snd)
-          return False
-        case _:
-          return False
-    case Constant(lhs_name):
-      match rhs:
-        case Constant(rhs_name):
-          return lhs_name == rhs_name
-        case _:
-          return False
-    case Variable(lhs_name):
-      match rhs:
-        case Variable(rhs_name):
-          return lhs_name == rhs_name
-        case _:
-          return False
-    case Boolean(lhs_value):
-      match rhs:
-        case Boolean(rhs_value):
-          return lhs_value == rhs_value
-        case _:
-          return False
-    case Number(lhs_value):
-      match rhs:
-        case Number(rhs_value):
-          return _isclose(lhs_value, rhs_value)
-        case _:
-          return False
-    case String(lhs_value):
-      match rhs:
-        case String(rhs_value):
-          return lhs_value == rhs_value
-        case _:
-          return False
-    case Environment() | Lift() | Abstract() | Wrap():
-      return lhs == rhs
-    case _:
-      raise error(f'Cannot determine the equality of the unknown object {lhs}.')
+def norm(initial, env=None, quota=1_000):
+  state = eval(initial, env)
+  while quota > 0 and not state.is_ok:
+    quota -= 1
+    state  = step(state)
+  state.assert_ok()
+  return state.object
 
 def from_list(xs):
   state = nil()
@@ -996,10 +999,10 @@ class SanityTest(unittest.TestCase):
       '(+ 1.0 2.0 3.0 4.0)',
     ]
     for example in examples:
-      obj = read(example)[0]
-      self.assertEqual(example, f'{obj}')
+      object = read(example)[0]
+      self.assertEqual(example, f'{object}')
 
-  def test_eval(self):
+  def test_norm(self):
     examples = [
       ['(vau (x) e x)', lambda x: x.is_procedure],
       ['((vau (x) e x) 3)', lambda x: x.to_number == 3],
@@ -1008,12 +1011,7 @@ class SanityTest(unittest.TestCase):
       ['(+ 1 2 3 4)', lambda x: x.to_number == 10],
       ['(* 1 2 3 4)', lambda x: x.to_number == 24],
     ]
-    for initial, measure in examples:
-      object = read(initial)[0]
-      gas    = 100
-      state  = eval(object)
-      while gas > 0 and not state.is_ok:
-        gas  -= 1
-        state = step(state)
-      self.assertTrue(state.is_ok)
-      self.assertTrue(measure(state.object))
+    for source, measure in examples:
+      initial = read(source)[0]
+      final   = norm(initial)
+      self.assertTrue(measure(final))
