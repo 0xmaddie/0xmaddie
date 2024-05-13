@@ -1,5 +1,6 @@
 from typing import Optional
 from typing import Callable
+import random
 import dataclasses
 import unittest
 
@@ -18,6 +19,18 @@ class Error(Exception):
 
 def error(message):
   return Error(message)
+
+def crash(procedure, args):
+    message = f'''
+Cannot apply the primitive procedure
+
+{procedure}
+
+to the arguments
+
+{args}
+'''.strip()
+    return error(message)
 
 class Object:
   @property
@@ -54,6 +67,10 @@ class Object:
 
   @property
   def is_string(self):
+    return False
+
+  @property
+  def is_keyword(self):
     return False
 
   @property
@@ -138,6 +155,13 @@ class Object:
   def to_string(self):
     if not self.is_string:
       message = f'Expected a string, but got {self}.'
+      raise error(message)
+    return self.value
+
+  @property
+  def to_keyword(self):
+    if not self.is_keyword:
+      message = f'Expected a keyword, but got {self}.'
       raise error(message)
     return self.value
 
@@ -391,6 +415,21 @@ class String(Object):
 
   @property
   def value(self):
+    #string = self.__value.replace('"', '\\"')
+    #return string
+    string = self.__value
+    return f'"{string}"'
+
+@dataclasses.dataclass(frozen=True)
+class Keyword(Object):
+  __value: str
+
+  @property
+  def is_keyword(self):
+    return True
+
+  @property
+  def value(Self):
     return self.__value
 
 class Environment(Object):
@@ -468,9 +507,18 @@ class Environment(Object):
           msg = f'The symbol {name} is already bound to a value and cannot be redefined.'
           raise error(msg)
         self.body[name] = value
+      case Keyword(name):
+        match name:
+          case ':none':
+            pass
+          case _:
+            msg = f'Unexpected keyword during variable binding: {key}'
+            raise error(msg)
       case str(name):
         if name[0].isupper():
           name = constant(name)
+        elif name[0] == ':':
+          name = keyword(name)
         else:
           name = variable(name)
         self[name] = value
@@ -602,82 +650,221 @@ class Apply(State):
   def __str__(self):
     return f'#<apply {self.object}>'
 
+def _lisp_print(args, env, go):
+  def go_args(args):
+    buf = []
+    xs  = args
+    while not xs.is_nil:
+      buf.append(f'{xs.fst}')
+      xs = xs.snd
+    string = ' '.join(buf)
+    print(string)
+    return go(nil())
+  return evlis(args, env, go_args)
+
 def _lisp_list(args, env, go):
   def go_args(args):
     return go(args)
   return evlis(args, env, go_args)
 
+def _lisp_list_star(args, env, go):
+  def go_args(args):
+    if args.is_nil:
+      return go(args)
+    if args.snd.is_nil:
+      return go(args.fst)
+    buf = []
+    xs  = args
+    while not xs.snd.is_nil:
+      buf.append(xs.fst)
+      xs = xs.snd
+    state = xs.fst
+    for object in reversed(buf):
+      state = pair(object, state)
+    return go(state)
+  return evlis(args, env, go_args)
+
+def _lisp_fst(args, env, go):
+  def go_args(args):
+    try:
+      object = args.fst.fst
+      return go(object)
+    except Error:
+      signature = '(fst PAIR)'
+      raise crash(signature, args)
+  return evlis(args, env, go_args)
+
+def _lisp_snd(args, env, go):
+  def go_args(args):
+    try:
+      object = args.fst.snd
+      return go(object)
+    except Error:
+      signature = '(fst PAIR)'
+      raise crash(signature, args)
+  return evlis(args, env, go_args)
+
+def _lisp_define(args, env, go):
+  try:
+    lhs = args.fst.to_variable
+    rhs = args.snd.fst
+  except Error:
+    signature = '(define NAME OBJECT)'
+    raise crash(signature, args)
+  def go_rhs(rhs):
+    env[lhs] = rhs
+    return go(nil())
+  return eval(rhs, env, go_rhs)
+
+def _lisp_let(args, env, go):
+  try:
+    bindings = args.fst
+    body     = args.snd
+    scope    = environment(next=env)
+    def iter(xs):
+      if xs.is_nil:
+        return exec(body, scope, go)
+      pair = xs.fst
+      lhs  = pair.fst.to_variable
+      rhs  = pair.snd.fst
+      def go_rhs(rhs):
+        nonlocal scope
+        scope[lhs] = rhs
+        return iter(xs.snd)
+      return eval(rhs, scope, go_rhs)
+    return iter(bindings)
+  except Error as err:
+    signature = '(let BINDINGS BODY...)'
+    raise crash(signature, args)
+
+def _lisp_eval(args, env, go):
+  def go_args(args):
+    try:
+      expr = args.fst
+      if not args.snd.is_nil:
+        local = args.snd.fst
+        def go_local(local):
+          return eval(expr, local, go)
+        return eval(local, env, go_local)
+      else:
+        local = initial_environment()
+        return eval(expr, local, go)
+    except Error:
+      signature = '(eval EXPRESSION ENVIRONMENT?)'
+      raise crash(signature, args)
+  return evlis(args, env, go_args)
+
 def _lisp_vau(args, env, go):
-  head    = args.fst
-  body    = args.snd.snd
-  dynamic = args.snd.fst
-  lexical = env
-  target  = abstract(head, body, dynamic, lexical)
-  return go(target)
+  try:
+    head    = args.fst
+    body    = args.snd.snd
+    dynamic = args.snd.fst
+    lexical = env
+    target  = abstract(head, body, dynamic, lexical)
+    return go(target)
+  except Error as err:
+    signature = '(vau PARAMS DYNAMIC-ENVIRONMENT BODY...)'
+    raise crash(signature, args)
 
 def _lisp_wrap(args, env, go):
   def go_args(args):
-    return go(wrap(args.fst))
+    try:
+      return go(wrap(args.fst))
+    except Error as err:
+      signature = '(wrap PROCEDURE)'
+      raise crash(signature, args)
   return evlis(args, env, go_args)
 
 def _lisp_unwrap(args, env, go):
   def go_args(args):
-    return go(args.fst.to_wrap)
+    try:
+      return go(args.fst.to_wrap)
+    except Error as err:
+      signature = '(unwrap WRAPPED-PROCEDURE)'
+      raise crash(signature, args)
   return evlis(args, env, go_args)
 
 def _lisp_add(args, env, go):
   def go_args(args):
-    state = 0
-    while not args.is_nil:
-      state += args.fst.to_number
-      args   = args.snd
-    return go(number(state))
+    try:
+      xs    = args
+      state = 0
+      while not xs.is_nil:
+        state += xs.fst.to_number
+        xs     = xs.snd
+      return go(number(state))
+    except Error as err:
+      signature = '(+ NUMBER...)'
+      raise crash(signature, args)
   return evlis(args, env, go_args)
 
 def _lisp_mul(args, env, go):
   def go_args(args):
-    state = 1
-    while not args.is_nil:
-      state *= args.fst.to_number
-      args   = args.snd
-    return go(number(state))
+    try:
+      xs    = args
+      state = 1
+      while not xs.is_nil:
+        state *= xs.fst.to_number
+        xs     = xs.snd
+      return go(number(state))
+    except Error as err:
+      signature = '(* NUMBER...)'
+      raise crash(signature, args)
   return evlis(args, env, go_args)
 
 def _lisp_sub(args, env, go):
   def go_args(args):
-    if is_nil(args):
+    if args.is_nil:
       msg = f'Subtraction requires at least one argument.'
       raise error(msg)
-    state = args.fst.to_number
-    args  = args.snd
-    while not args.is_nil:
-      state -= args.fst.to_number
-      args   = args.snd
-    return go(number(state))
+    try:
+      state = args.fst.to_number
+      args  = args.snd
+      while not args.is_nil:
+        state -= args.fst.to_number
+        args   = args.snd
+      return go(number(state))
+    except Error:
+      signature = '(- NUMBER NUMBER...)'
+      raise crash(signature, args)
   return evlis(args, env, go_args)
 
 def _lisp_div(args, env, go):
   def go_args(args):
-    if is_nil(args):
+    if args.is_nil:
       msg = f'Division requires at least one argument.'
       raise error(msg)
-    state = args.fst.to_number
-    args  = args.snd
-    while not args.is_nil:
-      state /= args.fst.to_number
-      args   = args.snd
-    return go(number(state))
+    try:
+      state = args.fst.to_number
+      args  = args.snd
+      while not args.is_nil:
+        state /= args.fst.to_number
+        args   = args.snd
+      return go(number(state))
+    except Error:
+      signature = '(/ NUMBER NUMBER...)'
+      raise crash(signature, args)
   return evlis(args, env, go_args)
 
 def initial_environment():
   body = {}
 
+  body['print!'] = lift(_lisp_print)
+
   body['True']  = boolean(True)
   body['False'] = boolean(False)
 
+  body['define'] = lift(_lisp_define)
+  body['let']    = lift(_lisp_let)
+  body['eval']   = lift(_lisp_eval)
   body['vau']    = lift(_lisp_vau)
   body['wrap']   = lift(_lisp_wrap)
   body['unwrap'] = lift(_lisp_unwrap)
+
+  body['list']  = lift(_lisp_list)
+  body['list*'] = lift(_lisp_list_star)
+  body['fst']   = lift(_lisp_fst)
+  body['snd']   = lift(_lisp_snd)
 
   body['+'] = lift(_lisp_add)
   body['*'] = lift(_lisp_mul)
@@ -737,16 +924,19 @@ def step(state):
         case Lift(body):
           return body(args, env, go)
         case Abstract(head, body, dynamic, lexical):
-          if head.length != args.length:
-            msg = f'Expected {head.length} arguments, but got {args.length}.'
-            raise error(msg)
           local = environment(next=lexical)
-          while not head.is_nil:
-            lhs        = head.fst.to_variable
-            rhs        = args.fst
-            local[lhs] = rhs
-            head       = head.snd
-            args       = args.snd
+          if head.is_list:
+            if head.length != args.length:
+              msg = f'Expected {head.length} arguments, but got {args.length}.'
+              raise error(msg)
+            while not head.is_nil:
+              lhs        = head.fst.to_variable
+              rhs        = args.fst
+              local[lhs] = rhs
+              head       = head.snd
+              args       = args.snd
+          else:
+            local[head] = args
           local[dynamic] = env
           return exec(body, local, go)
         case Wrap(proc):
@@ -774,6 +964,10 @@ def variable(name):
   assert isinstance(name, str)
   return Variable(name)
 
+def keyword(name):
+  assert isinstance(name, str)
+  return Keyword(name)
+
 def boolean(value):
   assert isinstance(value, bool)
   return Boolean(value)
@@ -796,9 +990,9 @@ def lift(body):
   return Lift(body)
 
 def abstract(head, body, dynamic, lexical):
-  head.assert_list()
+  # head.assert_list()
   body.assert_list()
-  dynamic.assert_variable()
+  # dynamic.assert_variable()
   lexical.assert_environment()
   return Abstract(head, body, dynamic, lexical)
 
@@ -852,7 +1046,7 @@ def is_begin_string(source, index):
 
 def is_end_string(source, index):
   if index == 0:
-    return False
+    return source[index] == '"'
   return source[index] == '"' and source[index-1] != '\\'
 
 def is_whitespace(source, index):
@@ -874,6 +1068,9 @@ def is_unreadable(symbol):
 
 def is_constant(symbol):
   return len(symbol) > 0 and symbol[0].isupper()
+
+def is_keyword(symbol):
+  return len(symbol) > 0 and symbol[0] == ':'
 
 def read(source: str):
   stack = []
@@ -927,6 +1124,8 @@ def read(source: str):
       except ValueError:
         if is_constant(body):
           build.append(constant(body))
+        elif is_keyword(body):
+          build.append(keyword(body))
         else:
           build.append(variable(body))
   return build
@@ -956,9 +1155,10 @@ def _show(obj):
       return str(value)
     case Number(value):
       return str(value)
-    case String(value):
-      # todo: escape quotes
-      return f'"{value}"'
+    case String(_):
+      return obj.value
+    case Keyword(name):
+      return name
     case Environment():
       return '#<environment>'
     case Lift() | Wrap() | Abstract():
@@ -1015,3 +1215,68 @@ class SanityTest(unittest.TestCase):
       initial = read(source)[0]
       final   = norm(initial)
       self.assertTrue(measure(final))
+
+  def test_nested_operations(self):
+    source = '(+ 1 (* 2 3) (- 10 6))'
+    initial = read(source)[0]
+    final = norm(initial)
+    self.assertTrue(final.to_number == 11)
+
+  def test_add_and_subtract(self):
+    examples = [
+      ['(+)', lambda x: x.to_number == 0],
+      ['(+ 1 2 3 4 5)', lambda x: x.to_number == 15],
+      ['(- 10)', lambda x: x.to_number == 10],
+      ['(- 10 5)', lambda x: x.to_number == 5],
+      ['(- 10 3 2)', lambda x: x.to_number == 5],
+    ]
+    for source, measure in examples:
+      initial = read(source)[0]
+      final = norm(initial)
+      self.assertTrue(measure(final))
+
+  def test_multiply_and_divide(self):
+    examples = [
+      ['(*)', lambda x: x.to_number == 1],
+      ['(* 1 2 3 4 5)', lambda x: x.to_number == 120],
+      ['(/ 100)', lambda x: x.to_number == 100],
+      ['(/ 100 5)', lambda x: x.to_number == 20],
+      ['(/ 120 2 3)', lambda x: x.to_number == 20],
+    ]
+    for source, measure in examples:
+      initial = read(source)[0]
+      final = norm(initial)
+      self.assertTrue(measure(final))
+
+  def test_vau_wrap_unwrap(self):
+    examples = [
+      ['(vau (x) e x)', lambda x: x.is_procedure],
+      ['(wrap (vau (x) e x))', lambda x: x.is_procedure and x.is_wrap],
+      ['(unwrap (wrap (vau (x) e x)))', lambda x: x.is_procedure and not x.is_wrap],
+    ]
+    for source, measure in examples:
+      initial = read(source)[0]
+      final = norm(initial)
+      self.assertTrue(measure(final))
+
+  def test_miscellaneous_operations(self):
+    examples = [
+      ['(+ 1 (* 2 3) (- 5 3))', lambda x: x.to_number == 9],
+      ['(+ (* 2 (/ 8 4)) (- 10 8))', lambda x: x.to_number == 6],
+    ]
+    for source, measure in examples:
+      initial = read(source)[0]
+      final = norm(initial)
+      self.assertTrue(measure(final))
+
+  def test_string_escapes(self):
+    strings = [
+      '"He said \\"Hello, world.\\""',
+    ]
+    for string in strings:
+      object = read(string)[0]
+      iterations = random.randint(1, 10)
+      for _ in range(iterations):
+        object = read(f'{object}')[0]
+      #print(f'\nstring={string}\nobject={object}')
+      self.assertEqual(f'{object}', string)

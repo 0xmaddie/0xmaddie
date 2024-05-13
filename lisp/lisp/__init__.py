@@ -22,3 +22,4 @@ from .interpreter import apply
 from .interpreter import norm
 from .interpreter import from_list
 from .interpreter import from_dict
+from .interpreter import initial_environment
