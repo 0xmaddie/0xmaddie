@@ -15,22 +15,47 @@ class Error(Exception):
     self.environment = environment
 
   def __str__(self):
-    return self.message
+    return f'{self.message}'
 
 def error(message):
   return Error(message)
 
-def crash(procedure, args):
-    message = f'''
-Cannot apply the primitive procedure
+def atomic_error(proc, args, env, err):
+  message = f'''
+Lisp produced an error while applying the atomic procedure
 
-{procedure}
+```
+{proc.advice}
+```
 
-to the arguments
+to the argument list
 
+```
 {args}
+```
+
+{err}
 '''.strip()
-    return error(message)
+  return error(message)
+
+def abstract_error(proc, args, env, err):
+  message = f'''
+Lisp produced an error while applying the abstract procedure
+
+```
+(vau {proc.head} {proc.dynamic}
+  {proc.body})
+```
+
+to the argument list
+
+```
+{args}
+```
+
+{err}
+'''.strip()
+  return error(message)
 
 class Object:
   @property
@@ -82,7 +107,7 @@ class Object:
     return False
 
   @property
-  def is_lift(self):
+  def is_atomic(self):
     return False
 
   @property
@@ -174,13 +199,6 @@ class Object:
     if not self.is_procedure:
       message = f'Expected a procedure, but got {self}.'
       raise error(message)
-
-  @property
-  def to_lift(self):
-    if not self.is_lift:
-      message = f'Expected a lifted procedure, but got {self}.'
-      raise error(message)
-    return self.body
 
   @property
   def to_wrap(self):
@@ -496,9 +514,19 @@ class Environment(Object):
         else:
           name = variable(name)
         return self[name]
+      case _:
+        msg = f'Cannot retrieve the value bound to `{key}`'
+        raise error(msg)
 
   def __setitem__(self, key, value):
     match key:
+      case Nil():
+        match value:
+          case Nil():
+            pass
+          case _:
+            msg = f'Cannot bind nil to the non-nil value {value}'
+            raise error(msg)
       case Constant(name):
         msg = f'The symbol {name} is a constant and cannot be redefined.'
         raise error(msg)
@@ -522,22 +550,19 @@ class Environment(Object):
         else:
           name = variable(name)
         self[name] = value
+      case _:
+        msg = f'Cannot bind a value to `{key}`'
+        raise error(msg)
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class Lift(Object):
-  __body: Callable[[Object, Object, Context, 'Lisp'], State]
-
+class Atomic(Object):
   @property
   def is_procedure(self):
     return True
 
   @property
-  def is_lift(self):
+  def is_atomic(self):
     return True
-
-  @property
-  def body(self):
-    return self.__body
 
 @dataclasses.dataclass(frozen=True, eq=False)
 class Abstract(Object):
@@ -650,226 +675,440 @@ class Apply(State):
   def __str__(self):
     return f'#<apply {self.object}>'
 
-def _lisp_print(args, env, go):
-  def go_args(args):
+@dataclasses.dataclass(frozen=True)
+class PrPrint(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(print OBJECT...)
+
+Write the string representation of each OBJECT to standard output.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
     buf = []
-    xs  = args
-    while not xs.is_nil:
-      buf.append(f'{xs.fst}')
-      xs = xs.snd
+    while not args.is_nil:
+      buf.append(str(args.fst))
+      args = args.snd
     string = ' '.join(buf)
     print(string)
     return go(nil())
-  return evlis(args, env, go_args)
 
-def _lisp_list(args, env, go):
-  def go_args(args):
+@dataclasses.dataclass(frozen=True)
+class PrList(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(list OBJECT...)
+
+Return a list containing each OBJECT, in order from left to right.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
     return go(args)
-  return evlis(args, env, go_args)
 
-def _lisp_list_star(args, env, go):
-  def go_args(args):
+@dataclasses.dataclass(frozen=True)
+class PrListStar(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(list* OBJECT...)
+
+Return a list of the OBJECTs, where the last OBJECT is the tail of the list.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
     if args.is_nil:
       return go(args)
     if args.snd.is_nil:
       return go(args.fst)
     buf = []
-    xs  = args
-    while not xs.snd.is_nil:
-      buf.append(xs.fst)
-      xs = xs.snd
-    state = xs.fst
+    while not args.snd.is_nil:
+      buf.append(args.fst)
+      args = args.snd
+    state = args.fst
     for object in reversed(buf):
       state = pair(object, state)
     return go(state)
-  return evlis(args, env, go_args)
 
-def _lisp_fst(args, env, go):
-  def go_args(args):
-    try:
-      object = args.fst.fst
-      return go(object)
-    except Error:
-      signature = '(fst PAIR)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+@dataclasses.dataclass(frozen=True)
+class PrFst(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(fst PAIR)
 
-def _lisp_snd(args, env, go):
-  def go_args(args):
-    try:
-      object = args.fst.snd
-      return go(object)
-    except Error:
-      signature = '(fst PAIR)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+Return the first element of PAIR.
+'''.strip()
 
-def _lisp_define(args, env, go):
-  try:
-    lhs = args.fst.to_variable
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    return go(args.fst.fst)
+
+@dataclasses.dataclass(frozen=True)
+class PrSnd(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(snd PAIR)
+
+Return the second element of PAIR.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    return go(args.fst.fst)
+
+@dataclasses.dataclass(frozen=True)
+class PrDefine(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(define NAME OBJECT)
+
+Associates NAME with OBJECT in the current environment.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return False
+
+  def __call__(self, args, env, go):
+    lhs = args.fst
     rhs = args.snd.fst
-  except Error:
-    signature = '(define NAME OBJECT)'
-    raise crash(signature, args)
-  def go_rhs(rhs):
-    env[lhs] = rhs
-    return go(nil())
-  return eval(rhs, env, go_rhs)
+    def go_rhs(rhs):
+      env[lhs] = rhs
+      return go(nil())
+    return eval(rhs, env, go_rhs)
 
-def _lisp_let(args, env, go):
-  try:
+@dataclasses.dataclass(frozen=True)
+class PrLet(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(let BINDINGS BODY...)
+
+BINDINGS is an association list of key-value pairs; each
+key is bound to the corresponding value within a new
+environment; then, BODY is executed within this environment.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return False
+
+  def __call__(self, args, env, go):
     bindings = args.fst
     body     = args.snd
     scope    = environment(next=env)
-    def iter(xs):
-      if xs.is_nil:
+    def iter(bindings):
+      if bindings.is_nil:
         return exec(body, scope, go)
-      pair = xs.fst
-      lhs  = pair.fst.to_variable
+      pair = bindings.fst
+      lhs  = pair.fst
       rhs  = pair.snd.fst
       def go_rhs(rhs):
         nonlocal scope
         scope[lhs] = rhs
-        return iter(xs.snd)
+        return iter(bindings.snd)
       return eval(rhs, scope, go_rhs)
     return iter(bindings)
-  except Error as err:
-    signature = '(let BINDINGS BODY...)'
-    raise crash(signature, args)
 
-def _lisp_eval(args, env, go):
-  def go_args(args):
-    try:
-      expr = args.fst
-      if not args.snd.is_nil:
-        local = args.snd.fst
-        def go_local(local):
-          return eval(expr, local, go)
-        return eval(local, env, go_local)
-      else:
-        local = initial_environment()
-        return eval(expr, local, go)
-    except Error:
-      signature = '(eval EXPRESSION ENVIRONMENT?)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+@dataclasses.dataclass(frozen=True)
+class PrEval(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(eval EXPRESSION ENVIRONMENT?)
 
-def _lisp_vau(args, env, go):
-  try:
+Evaluate EXPRESSION in ENVIRONMENT (if it is provided) or the current environment
+if it is not.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    expr = args.fst
+    if not args.snd.is_nil:
+      scope = args.snd.fst
+      def go_scope(scope):
+        return eval(expr, scope, go)
+      return eval(scope, env, go_scope)
+    else:
+      scope = initial_environment()
+      return eval(expr, scope, go)
+
+@dataclasses.dataclass(frozen=True)
+class PrVau(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(vau FORMAL-PARAMETERS FORMAL-ENVIRONMENT BODY...)
+
+Returns a new abstract procedure that binds FORMAL-PARAMETERS
+and FORMAL-ENVIRONMENT at the call site within a new scope and
+then evaluates BODY within that scope.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return False
+
+  def __call__(self, args, env, go):
     head    = args.fst
     body    = args.snd.snd
     dynamic = args.snd.fst
     lexical = env
-    target  = abstract(head, body, dynamic, lexical)
-    return go(target)
-  except Error as err:
-    signature = '(vau PARAMS DYNAMIC-ENVIRONMENT BODY...)'
-    raise crash(signature, args)
+    return go(abstract(head, body, dynamic, lexical))
 
-def _lisp_wrap(args, env, go):
-  def go_args(args):
-    try:
-      return go(wrap(args.fst))
-    except Error as err:
-      signature = '(wrap PROCEDURE)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+@dataclasses.dataclass(frozen=True)
+class PrWrap(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(wrap PROCEDURE)
 
-def _lisp_unwrap(args, env, go):
-  def go_args(args):
-    try:
-      return go(args.fst.to_wrap)
-    except Error as err:
-      signature = '(unwrap WRAPPED-PROCEDURE)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+Returns a procedure that first evaluates all of its arguments,
+and then calls PROCEDURE on the results.
+'''.strip()
 
-def _lisp_add(args, env, go):
-  def go_args(args):
-    try:
-      xs    = args
-      state = 0
-      while not xs.is_nil:
-        state += xs.fst.to_number
-        xs     = xs.snd
-      return go(number(state))
-    except Error as err:
-      signature = '(+ NUMBER...)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+  @property
+  def is_applicative(self):
+    return True
 
-def _lisp_mul(args, env, go):
-  def go_args(args):
-    try:
-      xs    = args
-      state = 1
-      while not xs.is_nil:
-        state *= xs.fst.to_number
-        xs     = xs.snd
-      return go(number(state))
-    except Error as err:
-      signature = '(* NUMBER...)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+  def __call__(self, args, env, go):
+    return go(wrap(args.fst))
 
-def _lisp_sub(args, env, go):
-  def go_args(args):
-    if args.is_nil:
-      msg = f'Subtraction requires at least one argument.'
-      raise error(msg)
-    try:
-      state = args.fst.to_number
-      args  = args.snd
-      while not args.is_nil:
-        state -= args.fst.to_number
-        args   = args.snd
-      return go(number(state))
-    except Error:
-      signature = '(- NUMBER NUMBER...)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+@dataclasses.dataclass(frozen=True)
+class PrUnwrap(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(unwrap PROCEDURE)
 
-def _lisp_div(args, env, go):
-  def go_args(args):
-    if args.is_nil:
-      msg = f'Division requires at least one argument.'
-      raise error(msg)
-    try:
-      state = args.fst.to_number
-      args  = args.snd
-      while not args.is_nil:
-        state /= args.fst.to_number
-        args   = args.snd
-      return go(number(state))
-    except Error:
-      signature = '(/ NUMBER NUMBER...)'
-      raise crash(signature, args)
-  return evlis(args, env, go_args)
+If PROCEDURE was created with `wrap` then this procedure will
+return its body; if not then an error is raised.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    return go(args.fst.to_wrap)
+
+@dataclasses.dataclass(frozen=True)
+class PrAdd(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(+ NUMBER...)
+
+Folds the list of numbers with addition, using 0 as the initial state.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    state = 0
+    while not args.is_nil:
+      state += args.fst.to_number
+      args   = args.snd
+    return go(number(state))
+
+@dataclasses.dataclass(frozen=True)
+class PrMul(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(* NUMBER...)
+
+Folds the list of numbers with multiplication, using 1 as the initial state.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    state = 1
+    while not args.is_nil:
+      state *= args.fst.to_number
+      args   = args.snd
+    return go(number(state))
+
+@dataclasses.dataclass(frozen=True)
+class PrSub(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(- NUMBER NUMBER...)
+
+Folds the list of numbers with subtraction, using the first number as
+the initial state; there must be at least one number or an error is raised.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    state = args.fst.to_number
+    args  = args.snd
+    while not args.is_nil:
+      state -= args.fst.to_number
+      args   = args.snd
+    return go(number(state))
+
+@dataclasses.dataclass(frozen=True)
+class PrDiv(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(/ NUMBER NUMBER...)
+
+Folds the list of numbers with division, using the first number as
+the initial state; there must be at least one number or an error is raised.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    state = args.fst.to_number
+    args  = args.snd
+    while not args.is_nil:
+      value  = args.fst.to_number
+      if value == 0:
+        # TODO: lol we could say x/0 == 0, a few people did this
+        raise error('Division by zero.')
+      else:
+        state /= value
+      args = args.snd
+    return go(number(state))
+
+@dataclasses.dataclass(frozen=True)
+class PrAnd(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(and CONDITION...)
+
+Evaluates each condition from left to right. If a condition returns false
+then this procedure returns false; if no condition returns false then
+this procedure returns true.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return False
+
+  def __call__(self, args, env, go):
+    def iter(args):
+      if args.is_nil:
+        return go(boolean(True))
+      def go_fst(fst):
+        if not fst.to_boolean:
+          return go(boolean(False))
+        return iter(args.snd)
+      return eval(args.fst, env, go_fst)
+    return iter(args)
+
+@dataclasses.dataclass(frozen=True)
+class PrOr(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(or CONDITION...)
+
+Evaluates each condition from left to right. If a condition returns true
+then this procedure returns true; if no condition returns false then
+this procedure returns false.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return False
+
+  def __call__(self, args, env, go):
+    def iter(args):
+      if args.is_nil:
+        return go(boolean(False))
+      def go_fst(fst):
+        if fst.to_boolean:
+          return go(boolean(True))
+        return iter(args.snd)
+      return eval(args.fst, env, go_fst)
+    return iter(args)
+
+@dataclasses.dataclass(frozen=True)
+class PrNot(Atomic):
+  @property
+  def advice(self):
+    return f'''
+(not BOOLEAN)
+
+If BOOLEAN is True, return False; if BOOLEAN is False, returns True.
+'''.strip()
+
+  @property
+  def is_applicative(self):
+    return True
+
+  def __call__(self, args, env, go):
+    return go(boolean(not args.fst.to_boolean))
 
 def initial_environment():
   body = {}
 
-  body['print!'] = lift(_lisp_print)
+  body['print!'] = PrPrint()
 
   body['True']  = boolean(True)
   body['False'] = boolean(False)
 
-  body['define'] = lift(_lisp_define)
-  body['let']    = lift(_lisp_let)
-  body['eval']   = lift(_lisp_eval)
-  body['vau']    = lift(_lisp_vau)
-  body['wrap']   = lift(_lisp_wrap)
-  body['unwrap'] = lift(_lisp_unwrap)
+  body['define'] = PrDefine()
+  body['let']    = PrLet()
+  body['eval']   = PrEval()
+  body['vau']    = PrVau()
+  body['wrap']   = PrWrap()
+  body['unwrap'] = PrUnwrap()
 
-  body['list']  = lift(_lisp_list)
-  body['list*'] = lift(_lisp_list_star)
-  body['fst']   = lift(_lisp_fst)
-  body['snd']   = lift(_lisp_snd)
+  body['list']  = PrList()
+  body['list*'] = PrListStar()
+  body['fst']   = PrFst()
+  body['snd']   = PrSnd()
 
-  body['+'] = lift(_lisp_add)
-  body['*'] = lift(_lisp_mul)
-  body['-'] = lift(_lisp_sub)
-  body['/'] = lift(_lisp_div)
+  body['+'] = PrAdd()
+  body['*'] = PrMul()
+  body['-'] = PrSub()
+  body['/'] = PrDiv()
+
+  body['and'] = PrAnd()
+  body['or']  = PrOr()
+  body['not'] = PrNot()
 
   return environment(body)
 
@@ -921,24 +1160,41 @@ def step(state):
           raise error(msg)
     case Apply(proc, args, env, go):
       match proc:
-        case Lift(body):
-          return body(args, env, go)
-        case Abstract(head, body, dynamic, lexical):
-          local = environment(next=lexical)
-          if head.is_list:
-            if head.length != args.length:
-              msg = f'Expected {head.length} arguments, but got {args.length}.'
-              raise error(msg)
-            while not head.is_nil:
-              lhs        = head.fst.to_variable
-              rhs        = args.fst
-              local[lhs] = rhs
-              head       = head.snd
-              args       = args.snd
+        case Atomic():
+          # print(proc.advice)
+          if proc.is_applicative:
+            def go_args(args):
+              try:
+                return proc(args, env, go)
+              except Error as err:
+                raise atomic_error(proc, args, env, err)
+            return evlis(args, env, go_args)
           else:
-            local[head] = args
-          local[dynamic] = env
-          return exec(body, local, go)
+            try:
+              return proc(args, env, go)
+            except Error as err:
+              raise atomic_error(proc, args, env, err)
+        case Abstract(head, body, dynamic, lexical):
+          try:
+            local = environment(next=lexical)
+            if head.is_list:
+              # TODO you can't just check the lengths of the two lists bc of
+              # things like :rest, but failing if xs isn't nil at the end isn't
+              # very informative...
+              xs = args
+              while not head.is_nil:
+                lhs        = head.fst.to_variable
+                rhs        = xs.fst
+                local[lhs] = rhs
+                head       = head.snd
+                xs         = xs.snd
+              xs.assert_nil()
+            else:
+              local[head] = args
+            local[dynamic] = env
+            return exec(body, local, go)
+          except Error as err:
+            raise abstract_error(proc, args, env, err)
         case Wrap(proc):
           def go_args(args):
             return apply(proc, args, env, go)
@@ -986,8 +1242,8 @@ def environment(body=None, next=None):
     next.assert_environment()
   return Environment(body, next)
 
-def lift(body):
-  return Lift(body)
+def atomic(body):
+  return Atomic(body)
 
 def abstract(head, body, dynamic, lexical):
   # head.assert_list()
@@ -1161,7 +1417,7 @@ def _show(obj):
       return name
     case Environment():
       return '#<environment>'
-    case Lift() | Wrap() | Abstract():
+    case Atomic() | Wrap() | Abstract():
       return '#<procedure>'
     case _:
       msg = f'Cannot show the unknown object {obj}.'

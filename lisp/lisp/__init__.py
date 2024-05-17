@@ -8,7 +8,7 @@ from .interpreter import boolean
 from .interpreter import number
 from .interpreter import string
 from .interpreter import environment
-from .interpreter import lift
+from .interpreter import atomic
 from .interpreter import abstract
 from .interpreter import wrap
 from .interpreter import read
