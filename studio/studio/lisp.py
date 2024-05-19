@@ -1536,3 +1536,15 @@ class SanityTest(unittest.TestCase):
         object = read(f'{object}')[0]
       #print(f'\nstring={string}\nobject={object}')
       self.assertEqual(f'{object}', string)
+
+if __name__ == '__main__':
+  context = initial_environment()
+  while True:
+    try:
+      source  = input('> ')
+      objects = read(source)
+      for object in objects:
+        target = norm(object, context)
+        print(target)
+    except Error as err:
+      print(err)

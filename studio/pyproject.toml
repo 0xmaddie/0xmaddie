@@ -1,15 +1,18 @@
 [project]
-name = "lisp"
+name = "studio"
 version = "1.0.0"
 authors = [
   { name="Madison Brooks", email="maddie@sweetp.xyz" },
 ]
-description = "It's Lisp, Jim, but not as we know it."
-readme = "readme.md"
+description = "???"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  # "pycairo",
-  # "numpy",
+  "numpy",
+  "pycairo",
+  'bitsandbytes',
+  'accelerate',
+  'transformers',
   # "loguru",
 ]
 

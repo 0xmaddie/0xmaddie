@@ -32,6 +32,8 @@ class Llama:
     self.model = model or transformers.AutoModelForCausalLM.from_pretrained(
       model_name,
       device_map='auto',
+      # TODO: There was some FUD about Llama 3 quantization being a
+      # problem, is there any truth to this?
       load_in_8bit=True,
       cache_dir=cache_dir,
       local_files_only=local_files_only,
