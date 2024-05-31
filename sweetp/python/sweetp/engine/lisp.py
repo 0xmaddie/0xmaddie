@@ -1541,7 +1541,7 @@ if __name__ == '__main__':
   context = initial_environment()
   while True:
     try:
-      source  = input('> ')
+      source  = input('lisp@1.0.0:/\nλ ')
       objects = read(source)
       for object in objects:
         target = norm(object, context)
