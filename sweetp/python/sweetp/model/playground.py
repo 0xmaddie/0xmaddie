@@ -40,7 +40,7 @@ class Playground:
     xsize: int = 1024,
     ysize: int = 1024,
     num_inference_steps: int = 50,
-    guidance_scale: float = 13.0,
+    guidance_scale: float = 3.0,
     random_seed: int = 0,
     batch_size: int = 4,
   ) -> list[PIL.Image.Image]:
