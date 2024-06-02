@@ -6,12 +6,12 @@ import unittest
 
 class Error(Exception):
   message: str
-  object: Optional['Object']
+  value: Optional['Value']
   environment: Optional['Environment']
 
-  def __init__(self, message, object=None, environment=None):
+  def __init__(self, message, value=None, environment=None):
     self.message     = message
-    self.object      = object
+    self.value      = value
     self.environment = environment
 
   def __str__(self):
@@ -57,7 +57,7 @@ to the argument list
 '''.strip()
   return error(message)
 
-class Object:
+class Value:
   @property
   def is_nil(self):
     return False
@@ -219,42 +219,42 @@ class Object:
 
   @property
   def body(self):
-    message = f'The object {self} does not have an attribute named `body`.'
+    message = f'The value {self} does not have an attribute named `body`.'
     raise error(message)
 
   @property
   def name(self):
-    message = f'The object {self} does not have an attribute named `name`.'
+    message = f'The value {self} does not have an attribute named `name`.'
     raise error(message)
 
   @property
   def value(self):
-    message = f'The object {self} does not have an attribute named `value`.'
+    message = f'The value {self} does not have an attribute named `value`.'
     raise error(message)
 
   @property
   def next(self):
-    message = f'The object {self} does not have an attribute named `next`.'
+    message = f'The value {self} does not have an attribute named `next`.'
     raise error(message)
 
   @property
   def head(self):
-    message = f'The object {self} does not have an attribute named `head`.'
+    message = f'The value {self} does not have an attribute named `head`.'
     raise error(message)
 
   @property
   def dynamic(self):
-    message = f'The object {self} does not have an attribute named `dynamic`.'
+    message = f'The value {self} does not have an attribute named `dynamic`.'
     raise error(message)
 
   @property
   def lexical(self):
-    message = f'The object {self} does not have an attribute named `lexical`.'
+    message = f'The value {self} does not have an attribute named `lexical`.'
     raise error(message)
 
   @property
   def length(self):
-    message = f'The object {self} does not have an attribute named `length`.'
+    message = f'The value {self} does not have an attribute named `length`.'
     raise error(message)
 
   def __contains__(self, key):
@@ -298,10 +298,10 @@ class State:
       message = f'Expected an ok state, but got {self}.'
       raise error(message)
 
-Context = Callable[[Object], State]
+Context = Callable[[Value], State]
 
 @dataclasses.dataclass(frozen=True)
-class Nil(Object):
+class Nil(Value):
   @property
   def is_nil(self):
     return True
@@ -318,9 +318,9 @@ class Nil(Object):
     return False
 
 @dataclasses.dataclass(frozen=True)
-class Pair(Object):
-  __fst: Object
-  __snd: Object
+class Pair(Value):
+  __fst: Value
+  __snd: Value
 
   @property
   def is_pair(self):
@@ -342,11 +342,11 @@ class Pair(Object):
   def snd(self):
     return self.__snd
 
-  def __contains__(self, object):
+  def __contains__(self, value):
     self.assert_list()
     xs = self
     while not xs.is_nil:
-      if object == xs.fst:
+      if value == xs.fst:
         return True
       xs = xs.snd
     return False
@@ -368,7 +368,7 @@ class Pair(Object):
     raise error(message)
 
 @dataclasses.dataclass(frozen=True)
-class Constant(Object):
+class Constant(Value):
   __name: str
 
   @property
@@ -384,7 +384,7 @@ class Constant(Object):
     return self.__name
 
 @dataclasses.dataclass(frozen=True)
-class Variable(Object):
+class Variable(Value):
   __name: str
 
   @property
@@ -400,7 +400,7 @@ class Variable(Object):
     return self.__name
 
 @dataclasses.dataclass(frozen=True)
-class Boolean(Object):
+class Boolean(Value):
   __value: bool
 
   @property
@@ -412,7 +412,7 @@ class Boolean(Object):
     return self.__value
 
 @dataclasses.dataclass(frozen=True)
-class Number(Object):
+class Number(Value):
   __value: float
 
   @property
@@ -424,7 +424,7 @@ class Number(Object):
     return self.__value
 
 @dataclasses.dataclass(frozen=True)
-class String(Object):
+class String(Value):
   __value: str
 
   @property
@@ -439,7 +439,7 @@ class String(Object):
     return f'"{string}"'
 
 @dataclasses.dataclass(frozen=True)
-class Keyword(Object):
+class Keyword(Value):
   __value: str
 
   @property
@@ -450,8 +450,8 @@ class Keyword(Object):
   def value(Self):
     return self.__value
 
-class Environment(Object):
-  __body: dict[str, Object]
+class Environment(Value):
+  __body: dict[str, Value]
   __next: Optional['Environment']
 
   def __init__(self, body=None, next=None):
@@ -555,7 +555,7 @@ class Environment(Object):
         raise error(msg)
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class Atomic(Object):
+class Atomic(Value):
   @property
   def is_procedure(self):
     return True
@@ -565,11 +565,11 @@ class Atomic(Object):
     return True
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class Abstract(Object):
-  __head: Object
-  __body: Object
-  __dynamic: Object
-  __lexical: Object
+class Abstract(Value):
+  __head: Value
+  __body: Value
+  __dynamic: Value
+  __lexical: Value
 
   @property
   def is_procedure(self):
@@ -596,8 +596,8 @@ class Abstract(Object):
     return self.__lexical
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class Wrap(Object):
-  __body: Object
+class Wrap(Value):
+  __body: Value
 
   @property
   def is_procedure(self):
@@ -613,19 +613,19 @@ class Wrap(Object):
 
 @dataclasses.dataclass(frozen=True)
 class Ok(State):
-  object: Object
+  value: Value
 
   @property
   def is_ok(self):
     return True
 
   def __str__(self):
-    return f'#<ok {self.object}>'
+    return f'#<ok {self.value}>'
 
 @dataclasses.dataclass(frozen=True)
 class Eval(State):
-  object: Object
-  environment: Object
+  value: Value
+  environment: Value
   ok: Context
 
   @property
@@ -633,12 +633,12 @@ class Eval(State):
     return True
 
   def __str__(self):
-    return f'#<eval {self.object}>'
+    return f'#<eval {self.value}>'
 
 @dataclasses.dataclass(frozen=True)
 class Evlis(State):
-  object: Object
-  environment: Object
+  value: Value
+  environment: Value
   ok: Context
 
   @property
@@ -646,12 +646,12 @@ class Evlis(State):
     return True
 
   def __str__(self):
-    return f'#<evlis {self.object}>'
+    return f'#<evlis {self.value}>'
 
 @dataclasses.dataclass(frozen=True)
 class Exec(State):
-  object: Object
-  environment: Object
+  value: Value
+  environment: Value
   ok: Context
 
   @property
@@ -659,13 +659,13 @@ class Exec(State):
     return True
 
   def __str__(self):
-    return f'#<exec {self.object}>'
+    return f'#<exec {self.value}>'
 
 @dataclasses.dataclass(frozen=True)
 class Apply(State):
-  procedure: Object
-  arguments: Object
-  environment: Object
+  procedure: Value
+  arguments: Value
+  environment: Value
   ok: Context
 
   @property
@@ -673,16 +673,16 @@ class Apply(State):
     return True
 
   def __str__(self):
-    return f'#<apply {self.object}>'
+    return f'#<apply {self.value}>'
 
 @dataclasses.dataclass(frozen=True)
 class PrPrint(Atomic):
   @property
   def advice(self):
     return f'''
-(print OBJECT...)
+(print VALUE...)
 
-Write the string representation of each OBJECT to standard output.
+Write the string representation of each VALUE to standard output.
 '''.strip()
 
   @property
@@ -703,9 +703,9 @@ class PrList(Atomic):
   @property
   def advice(self):
     return f'''
-(list OBJECT...)
+(list VALUE...)
 
-Return a list containing each OBJECT, in order from left to right.
+Return a list containing each VALUE, in order from left to right.
 '''.strip()
 
   @property
@@ -720,9 +720,9 @@ class PrListStar(Atomic):
   @property
   def advice(self):
     return f'''
-(list* OBJECT...)
+(list* VALUE...)
 
-Return a list of the OBJECTs, where the last OBJECT is the tail of the list.
+Return a list of the VALUEs, where the last VALUE is the tail of the list.
 '''.strip()
 
   @property
@@ -739,8 +739,8 @@ Return a list of the OBJECTs, where the last OBJECT is the tail of the list.
       buf.append(args.fst)
       args = args.snd
     state = args.fst
-    for object in reversed(buf):
-      state = pair(object, state)
+    for value in reversed(buf):
+      state = pair(value, state)
     return go(state)
 
 @dataclasses.dataclass(frozen=True)
@@ -782,9 +782,9 @@ class PrDefine(Atomic):
   @property
   def advice(self):
     return f'''
-(define NAME OBJECT)
+(define NAME VALUE)
 
-Associates NAME with OBJECT in the current environment.
+Associates NAME with VALUE in the current environment.
 '''.strip()
 
   @property
@@ -1256,8 +1256,8 @@ def wrap(body):
   body.assert_procedure()
   return Wrap(body)
 
-def ok(object):
-  return Ok(object)
+def ok(value):
+  return Ok(value)
 
 def eval(value, env=None, go=ok):
   if env is None:
@@ -1420,7 +1420,7 @@ def _show(obj):
     case Atomic() | Wrap() | Abstract():
       return '#<procedure>'
     case _:
-      msg = f'Cannot show the unknown object {obj}.'
+      msg = f'Cannot show the unknown value {obj}.'
       raise error(msg)
 
 def norm(initial, env=None, quota=1_000):
@@ -1429,7 +1429,7 @@ def norm(initial, env=None, quota=1_000):
     quota -= 1
     state  = step(state)
   state.assert_ok()
-  return state.object
+  return state.value
 
 def from_list(xs):
   state = nil()
@@ -1455,8 +1455,8 @@ class SanityTest(unittest.TestCase):
       '(+ 1.0 2.0 3.0 4.0)',
     ]
     for example in examples:
-      object = read(example)[0]
-      self.assertEqual(example, f'{object}')
+      value = read(example)[0]
+      self.assertEqual(example, f'{value}')
 
   def test_norm(self):
     examples = [
@@ -1530,21 +1530,21 @@ class SanityTest(unittest.TestCase):
       '"He said \\"Hello, world.\\""',
     ]
     for string in strings:
-      object = read(string)[0]
+      value = read(string)[0]
       iterations = random.randint(1, 10)
       for _ in range(iterations):
-        object = read(f'{object}')[0]
-      #print(f'\nstring={string}\nobject={object}')
-      self.assertEqual(f'{object}', string)
+        value = read(f'{value}')[0]
+      #print(f'\nstring={string}\nvalue={value}')
+      self.assertEqual(f'{value}', string)
 
 if __name__ == '__main__':
   context = initial_environment()
   while True:
     try:
       source  = input('lisp@1.0.0:/\nλ ')
-      objects = read(source)
-      for object in objects:
-        target = norm(object, context)
+      values = read(source)
+      for value in values:
+        target = norm(value, context)
         print(target)
     except Error as err:
       print(err)
