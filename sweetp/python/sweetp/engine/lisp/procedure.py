@@ -4,7 +4,7 @@ import sweetp.engine.lisp.value as vx
 import sweetp.engine.lisp.interpreter as ix
 
 @dataclasses.dataclass(frozen=True)
-class PrPrint(vx.Atomic):
+class Print(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -27,7 +27,7 @@ Write the string representation of each VALUE to standard output.
     return go(vx.nil())
 
 @dataclasses.dataclass(frozen=True)
-class PrList(vx.Atomic):
+class List(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -44,7 +44,7 @@ Return a list containing each VALUE, in order from left to right.
     return go(args)
 
 @dataclasses.dataclass(frozen=True)
-class PrListStar(vx.Atomic):
+class ListStar(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -72,7 +72,7 @@ Return a list of the VALUEs, where the last VALUE is the tail of the list.
     return go(state)
 
 @dataclasses.dataclass(frozen=True)
-class PrFst(vx.Atomic):
+class Fst(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -89,7 +89,7 @@ Return the first element of PAIR.
     return go(args.fst.fst)
 
 @dataclasses.dataclass(frozen=True)
-class PrSnd(vx.Atomic):
+class Snd(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -106,7 +106,7 @@ Return the second element of PAIR.
     return go(args.fst.snd)
 
 @dataclasses.dataclass(frozen=True)
-class PrDefine(vx.Atomic):
+class Define(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -128,7 +128,7 @@ Associates NAME with VALUE in the current environment.
     return ix.eval(rhs, env, go_rhs)
 
 @dataclasses.dataclass(frozen=True)
-class PrLet(vx.Atomic):
+class Let(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -161,7 +161,7 @@ environment; then, BODY is executed within this environment.
     return iter(bindings)
 
 @dataclasses.dataclass(frozen=True)
-class PrEval(vx.Atomic):
+class Eval(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -187,7 +187,7 @@ if it is not.
       return ix.eval(expr, scope, go)
 
 @dataclasses.dataclass(frozen=True)
-class PrVau(vx.Atomic):
+class Vau(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -210,7 +210,7 @@ then evaluates BODY within that scope.
     return go(vx.abstract(head, body, dynamic, lexical))
 
 @dataclasses.dataclass(frozen=True)
-class PrWrap(vx.Atomic):
+class Wrap(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -228,7 +228,7 @@ and then calls PROCEDURE on the results.
     return go(vx.wrap(args.fst))
 
 @dataclasses.dataclass(frozen=True)
-class PrUnwrap(vx.Atomic):
+class Unwrap(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -246,7 +246,7 @@ return its body; if not then an error is raised.
     return go(args.fst.to_wrap)
 
 @dataclasses.dataclass(frozen=True)
-class PrAdd(vx.Atomic):
+class Add(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -267,7 +267,7 @@ Folds the list of numbers with addition, using 0 as the initial state.
     return go(vx.number(state))
 
 @dataclasses.dataclass(frozen=True)
-class PrMul(vx.Atomic):
+class Mul(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -288,7 +288,7 @@ Folds the list of numbers with multiplication, using 1 as the initial state.
     return go(vx.number(state))
 
 @dataclasses.dataclass(frozen=True)
-class PrSub(vx.Atomic):
+class Sub(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -311,7 +311,7 @@ the initial state; there must be at least one number or an error is raised.
     return go(vx.number(state))
 
 @dataclasses.dataclass(frozen=True)
-class PrDiv(vx.Atomic):
+class Div(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -332,14 +332,14 @@ the initial state; there must be at least one number or an error is raised.
       value  = args.fst.to_number
       if value == 0:
         # TODO: lol we could say x/0 == 0, a few people did this
-        raise error('Division by zero.')
+        raise vx.error('Division by zero.')
       else:
         state /= value
       args = args.snd
     return go(vx.number(state))
 
 @dataclasses.dataclass(frozen=True)
-class PrAnd(vx.Atomic):
+class And(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -366,7 +366,7 @@ this procedure returns true.
     return iter(args)
 
 @dataclasses.dataclass(frozen=True)
-class PrOr(vx.Atomic):
+class Or(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -393,7 +393,7 @@ this procedure returns false.
     return iter(args)
 
 @dataclasses.dataclass(frozen=True)
-class PrNot(vx.Atomic):
+class Not(vx.Atomic):
   @property
   def advice(self):
     return f'''
@@ -412,30 +412,30 @@ If BOOLEAN is True, return False; if BOOLEAN is False, returns True.
 def initial_environment():
   body = {}
 
-  body['print!'] = PrPrint()
+  body['print!'] = Print()
 
   body['True']  = vx.boolean(True)
   body['False'] = vx.boolean(False)
 
-  body['define'] = PrDefine()
-  body['let']    = PrLet()
-  body['eval']   = PrEval()
-  body['vau']    = PrVau()
-  body['wrap']   = PrWrap()
-  body['unwrap'] = PrUnwrap()
+  body['define'] = Define()
+  body['let']    = Let()
+  body['eval']   = Eval()
+  body['vau']    = Vau()
+  body['wrap']   = Wrap()
+  body['unwrap'] = Unwrap()
 
-  body['list']  = PrList()
-  body['list*'] = PrListStar()
-  body['fst']   = PrFst()
-  body['snd']   = PrSnd()
+  body['list']  = List()
+  body['list*'] = ListStar()
+  body['fst']   = Fst()
+  body['snd']   = Snd()
 
-  body['+'] = PrAdd()
-  body['*'] = PrMul()
-  body['-'] = PrSub()
-  body['/'] = PrDiv()
+  body['+'] = Add()
+  body['*'] = Mul()
+  body['-'] = Sub()
+  body['/'] = Div()
 
-  body['and'] = PrAnd()
-  body['or']  = PrOr()
-  body['not'] = PrNot()
+  body['and'] = And()
+  body['or']  = Or()
+  body['not'] = Not()
 
   return vx.environment(body)
