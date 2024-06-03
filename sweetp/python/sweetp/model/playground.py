@@ -4,7 +4,7 @@ import PIL
 import torch
 import diffusers
 
-class Playground:
+class Model:
   model_name: str
   model: diffusers.DiffusionPipeline
   rng: torch.Generator
