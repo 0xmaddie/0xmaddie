@@ -1,8 +1,8 @@
 [project]
-name = "sweetp"
+name = "scriptkitty"
 version = "1.0.0"
 authors = [
-  { name="Madison Brooks", email="maddie@sweetp.xyz" },
+  { name="Madison Brooks", email="maddie@scriptkitty.xyz" },
 ]
 description = "???"
 readme = "README.md"
@@ -10,6 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
   'numpy',
   'pycairo',
+  # 'flash-attn',
   'bitsandbytes',
   'accelerate',
   'transformers',
